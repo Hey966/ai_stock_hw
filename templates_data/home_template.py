@@ -45,7 +45,7 @@ HOME_TEMPLATE = """
         <div class="feature-icon">📡</div>
         <div class="feature-title">市場掃描</div>
         <div class="feature-text">
-          自動分類買入區、持有區、賣出區與適合區，快速掌握全市場狀態。
+          自動分類買入區、持有區、賣出區與觀察區，快速掌握全市場狀態。
         </div>
         <a href="/market">前往市場掃描</a>
       </div>
@@ -83,27 +83,37 @@ HOME_TEMPLATE = """
 
         <div class="status-pill">
           <div class="status-label">市場更新</div>
-          <div class="status-value" id="home-market-updated-at">{{ market_sections["updated_at"] }}</div>
+          <div class="status-value" id="home-market-updated-at">
+            {{ market_sections.get("updated_at", "N/A") }}
+          </div>
         </div>
 
         <div class="status-pill">
-          <div class="status-label">市場進度</div>
-          <div class="status-value" id="home-market-progress">{{ market_sections["progress"]["processed"] }} / {{ market_sections["progress"]["total"] }}</div>
+          <div class="status-label">掃描總數</div>
+          <div class="status-value" id="home-market-total-scanned">
+            {{ market_sections.get("total_scanned", 0) }}
+          </div>
         </div>
 
         <div class="status-pill">
-          <div class="status-label">最後股票</div>
-          <div class="status-value" id="home-market-last-symbol">{{ market_sections["progress"]["last_symbol"] }}</div>
+          <div class="status-label">錯誤數量</div>
+          <div class="status-value" id="home-market-error-count">
+            {{ market_sections.get("error_count", 0) }}
+          </div>
         </div>
 
         <div class="status-pill">
           <div class="status-label">今日策略更新</div>
-          <div class="status-value" id="home-daily-updated-at">{{ daily_selection["updated_at"] }}</div>
+          <div class="status-value" id="home-daily-updated-at">
+            {{ daily_selection.get("updated_at", "尚未產生") }}
+          </div>
         </div>
 
         <div class="status-pill">
           <div class="status-label">分析日期</div>
-          <div class="status-value" id="home-daily-date">{{ daily_selection["date"] }}</div>
+          <div class="status-value" id="home-daily-date">
+            {{ daily_selection.get("date", "尚未產生") }}
+          </div>
         </div>
       </div>
     </section>
@@ -113,37 +123,51 @@ HOME_TEMPLATE = """
       <div class="landing-summary-grid">
         <div class="summary-bubble bubble-green">
           <div class="summary-bubble-label">買入區</div>
-          <div class="summary-bubble-value" id="home-market-buy-count">{{ market_sections["buy"]|length }}</div>
+          <div class="summary-bubble-value" id="home-market-buy-count">
+            {{ market_sections.get("buy_count", market_sections.get("buy", [])|length) }}
+          </div>
         </div>
 
         <div class="summary-bubble bubble-yellow">
           <div class="summary-bubble-label">持有區</div>
-          <div class="summary-bubble-value" id="home-market-hold-count">{{ market_sections["hold"]|length }}</div>
+          <div class="summary-bubble-value" id="home-market-hold-count">
+            {{ market_sections.get("hold_count", market_sections.get("hold", [])|length) }}
+          </div>
         </div>
 
         <div class="summary-bubble bubble-red">
           <div class="summary-bubble-label">賣出區</div>
-          <div class="summary-bubble-value" id="home-market-sell-count">{{ market_sections["sell"]|length }}</div>
+          <div class="summary-bubble-value" id="home-market-sell-count">
+            {{ market_sections.get("sell_count", market_sections.get("sell", [])|length) }}
+          </div>
         </div>
 
         <div class="summary-bubble bubble-blue">
-          <div class="summary-bubble-label">適合區</div>
-          <div class="summary-bubble-value" id="home-market-suitable-count">{{ market_sections["suitable"]|length }}</div>
+          <div class="summary-bubble-label">觀察區</div>
+          <div class="summary-bubble-value" id="home-market-watch-count">
+            {{ market_sections.get("watch_count", market_sections.get("watch", [])|length) }}
+          </div>
         </div>
 
         <div class="summary-bubble bubble-purple">
           <div class="summary-bubble-label">Top Buy</div>
-          <div class="summary-bubble-value" id="home-top-buy-count">{{ daily_selection["summary"]["top_buy_count"] }}</div>
+          <div class="summary-bubble-value" id="home-top-buy-count">
+            {{ daily_selection.get("summary", {}).get("top_buy_count", 0) }}
+          </div>
         </div>
 
         <div class="summary-bubble bubble-orange">
           <div class="summary-bubble-label">今日觀察</div>
-          <div class="summary-bubble-value" id="home-watch-count">{{ daily_selection["summary"]["watch_hold_count"] }}</div>
+          <div class="summary-bubble-value" id="home-watch-count">
+            {{ daily_selection.get("summary", {}).get("watch_hold_count", 0) }}
+          </div>
         </div>
 
         <div class="summary-bubble bubble-pink">
           <div class="summary-bubble-label">風險名單</div>
-          <div class="summary-bubble-value" id="home-risk-count">{{ daily_selection["summary"]["risk_list_count"] }}</div>
+          <div class="summary-bubble-value" id="home-risk-count">
+            {{ daily_selection.get("summary", {}).get("risk_list_count", 0) }}
+          </div>
         </div>
       </div>
     </section>
