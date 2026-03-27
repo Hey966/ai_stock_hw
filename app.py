@@ -24,10 +24,12 @@ from core.analysis_tools import (
 
 app = Flask(__name__)
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+DAILY_SELECTION_PATH = os.path.join(DATA_DIR, "daily_selection.json")
+
 
 def load_daily_selection():
-    path = os.path.join("data", "daily_selection.json")
-
     default_data = {
         "date": "尚未產生",
         "updated_at": "尚未產生",
@@ -42,11 +44,11 @@ def load_daily_selection():
         },
     }
 
-    if not os.path.exists(path):
+    if not os.path.exists(DAILY_SELECTION_PATH):
         return default_data
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(DAILY_SELECTION_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         data.setdefault("date", "尚未產生")
@@ -63,23 +65,13 @@ def load_daily_selection():
 @app.route("/")
 @requires_auth
 def home():
-    symbol = request.args.get("symbol", "2330").strip()
-
     try:
-        report = build_structured_report(symbol)
-        valuation = report.get("valuation", {})
         market_sections = load_market_scan_cache()
         daily_selection = load_daily_selection()
 
         return render_template_string(
             HOME_TEMPLATE,
             base_style=BASE_STYLE,
-            symbol=symbol,
-            report=report,
-            valuation=valuation,
-            suggestion_css=suggestion_class(
-                valuation.get("investment_suggestion", "")
-            ),
             market_sections=market_sections,
             daily_selection=daily_selection,
             live_script=LIVE_SCRIPT,
@@ -101,6 +93,7 @@ def stock_page():
     try:
         report = build_structured_report(symbol)
         valuation = report.get("valuation", {})
+
         return render_template_string(
             STOCK_TEMPLATE,
             base_style=BASE_STYLE,
@@ -126,6 +119,7 @@ def stock_page():
 def market_page():
     try:
         market_sections = load_market_scan_cache()
+
         return render_template_string(
             MARKET_TEMPLATE,
             base_style=BASE_STYLE,
@@ -146,6 +140,7 @@ def market_page():
 def daily_page():
     try:
         daily_selection = load_daily_selection()
+
         return render_template_string(
             DAILY_TEMPLATE,
             base_style=BASE_STYLE,
@@ -213,6 +208,7 @@ def tools():
                     item = item.strip()
                     if not item:
                         continue
+
                     symbol_part, weight_part = item.split(":")
                     positions.append(
                         {
@@ -290,6 +286,7 @@ def tools():
         stock_weights=stock_weights,
         industry_labels=industry_labels,
         industry_weights=industry_weights,
+        live_script=LIVE_SCRIPT,
     )
 
 
