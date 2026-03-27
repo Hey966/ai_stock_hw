@@ -1,2 +1,2 @@
 web: gunicorn app:app
-worker: python workers/market_worker.py
+web: gunicorn app:app --bind 0.0.0.0:$PORT
