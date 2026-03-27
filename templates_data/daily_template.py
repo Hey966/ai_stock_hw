@@ -11,7 +11,7 @@ DAILY_TEMPLATE = """
   <div class="container">
     <div class="nav">
       <a href="/">首頁</a>
-      <a href="/stock">個股分析</a>
+      <a href="/stock?symbol=2330">個股分析</a>
       <a href="/market">市場掃描</a>
       <a href="/daily">今日策略</a>
       <a href="/tools">進階分析工具</a>
@@ -29,34 +29,43 @@ DAILY_TEMPLATE = """
       <div class="market-status-row">
         <div class="market-status-chip">
           <div class="market-status-label">分析日期</div>
-          <div class="market-status-value" id="daily-date">{{ daily_selection["date"] }}</div>
+          <div class="market-status-value" id="daily-date">
+            {{ daily_selection.get("date", "尚未產生") }}
+          </div>
         </div>
 
         <div class="market-status-chip">
           <div class="market-status-label">更新時間</div>
-          <div class="market-status-value" id="daily-updated-at">{{ daily_selection["updated_at"] }}</div>
+          <div class="market-status-value" id="daily-updated-at">
+            {{ daily_selection.get("updated_at", "尚未產生") }}
+          </div>
         </div>
       </div>
 
       <div class="market-bubble-grid">
         <div class="market-bubble market-bubble-green">
           <div class="market-bubble-label">Top Buy</div>
-          <div class="market-bubble-value" id="daily-top-count">{{ daily_selection["summary"]["top_buy_count"] }}</div>
+          <div class="market-bubble-value" id="daily-top-count">
+            {{ daily_selection.get("summary", {}).get("top_buy_count", 0) }}
+          </div>
         </div>
 
         <div class="market-bubble market-bubble-yellow">
           <div class="market-bubble-label">今日觀察</div>
-          <div class="market-bubble-value" id="daily-watch-count">{{ daily_selection["summary"]["watch_hold_count"] }}</div>
+          <div class="market-bubble-value" id="daily-watch-count">
+            {{ daily_selection.get("summary", {}).get("watch_hold_count", 0) }}
+          </div>
         </div>
 
         <div class="market-bubble market-bubble-red">
           <div class="market-bubble-label">風險名單</div>
-          <div class="market-bubble-value" id="daily-risk-count">{{ daily_selection["summary"]["risk_list_count"] }}</div>
+          <div class="market-bubble-value" id="daily-risk-count">
+            {{ daily_selection.get("summary", {}).get("risk_list_count", 0) }}
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- Top Buy -->
     <section class="card market-section market-section-buy">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">2</span>Top Buy</h2>
@@ -64,34 +73,45 @@ DAILY_TEMPLATE = """
       </div>
 
       <div class="stock-list">
-        {% for item in daily_selection["top_buy"] %}
+        {% for item in daily_selection.get("top_buy", []) %}
         <div class="stock-item stock-item-buy">
           <div class="stock-head">
             <div>
-              <div class="stock-name">{{ item.company_name }}</div>
-              <div class="stock-symbol">{{ item.symbol }}｜{{ item.suggestion }}</div>
+              <div class="stock-name">{{ item.get("company_name", "-") }}</div>
+              <div class="stock-symbol">{{ item.get("symbol", "-") }}｜{{ item.get("signal", "-") }}</div>
             </div>
-            <div class="stock-score stock-score-buy">分數 {{ item.score }}</div>
+            <div class="stock-score stock-score-buy">
+              漲跌 {{ item.get("daily_change_pct", "N/A") }}%
+            </div>
           </div>
 
           <div class="stock-meta">
             <div class="stock-meta-box">
               <div class="stock-meta-label">最新價</div>
-              <div class="stock-meta-value">{{ item.latest_price }}</div>
+              <div class="stock-meta-value">{{ item.get("price", "N/A") }}</div>
+            </div>
+            <div class="stock-meta-box">
+              <div class="stock-meta-label">MA20</div>
+              <div class="stock-meta-value">{{ item.get("ma20", "N/A") }}</div>
             </div>
             <div class="stock-meta-box">
               <div class="stock-meta-label">合理價</div>
-              <div class="stock-meta-value">{{ item.fair_value }}</div>
+              <div class="stock-meta-value">{{ item.get("fair_value", "N/A") }}</div>
             </div>
           </div>
 
-          <div class="stock-reason">{{ item.reason }}</div>
+          <div class="stock-reason">{{ item.get("reason", "無分析原因") }}</div>
         </div>
         {% endfor %}
+
+        {% if not daily_selection.get("top_buy", []) %}
+        <div class="info-item">
+          <div class="value">目前尚無 Top Buy 名單。</div>
+        </div>
+        {% endif %}
       </div>
     </section>
 
-    <!-- Watch -->
     <section class="card market-section market-section-hold">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">3</span>今日觀察</h2>
@@ -99,34 +119,45 @@ DAILY_TEMPLATE = """
       </div>
 
       <div class="stock-list">
-        {% for item in daily_selection["watch_hold"] %}
+        {% for item in daily_selection.get("watch_hold", []) %}
         <div class="stock-item stock-item-hold">
           <div class="stock-head">
             <div>
-              <div class="stock-name">{{ item.company_name }}</div>
-              <div class="stock-symbol">{{ item.symbol }}｜{{ item.suggestion }}</div>
+              <div class="stock-name">{{ item.get("company_name", "-") }}</div>
+              <div class="stock-symbol">{{ item.get("symbol", "-") }}｜{{ item.get("signal", "-") }}</div>
             </div>
-            <div class="stock-score stock-score-hold">分數 {{ item.score }}</div>
+            <div class="stock-score stock-score-hold">
+              漲跌 {{ item.get("daily_change_pct", "N/A") }}%
+            </div>
           </div>
 
           <div class="stock-meta">
             <div class="stock-meta-box">
               <div class="stock-meta-label">最新價</div>
-              <div class="stock-meta-value">{{ item.latest_price }}</div>
+              <div class="stock-meta-value">{{ item.get("price", "N/A") }}</div>
+            </div>
+            <div class="stock-meta-box">
+              <div class="stock-meta-label">MA20</div>
+              <div class="stock-meta-value">{{ item.get("ma20", "N/A") }}</div>
             </div>
             <div class="stock-meta-box">
               <div class="stock-meta-label">合理價</div>
-              <div class="stock-meta-value">{{ item.fair_value }}</div>
+              <div class="stock-meta-value">{{ item.get("fair_value", "N/A") }}</div>
             </div>
           </div>
 
-          <div class="stock-reason">{{ item.reason }}</div>
+          <div class="stock-reason">{{ item.get("reason", "無分析原因") }}</div>
         </div>
         {% endfor %}
+
+        {% if not daily_selection.get("watch_hold", []) %}
+        <div class="info-item">
+          <div class="value">目前尚無今日觀察名單。</div>
+        </div>
+        {% endif %}
       </div>
     </section>
 
-    <!-- Risk -->
     <section class="card market-section market-section-sell">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">4</span>風險名單</h2>
@@ -134,30 +165,42 @@ DAILY_TEMPLATE = """
       </div>
 
       <div class="stock-list">
-        {% for item in daily_selection["risk_list"] %}
+        {% for item in daily_selection.get("risk_list", []) %}
         <div class="stock-item stock-item-sell">
           <div class="stock-head">
             <div>
-              <div class="stock-name">{{ item.company_name }}</div>
-              <div class="stock-symbol">{{ item.symbol }}｜{{ item.suggestion }}</div>
+              <div class="stock-name">{{ item.get("company_name", "-") }}</div>
+              <div class="stock-symbol">{{ item.get("symbol", "-") }}｜{{ item.get("signal", "-") }}</div>
             </div>
-            <div class="stock-score stock-score-sell">分數 {{ item.score }}</div>
+            <div class="stock-score stock-score-sell">
+              漲跌 {{ item.get("daily_change_pct", "N/A") }}%
+            </div>
           </div>
 
           <div class="stock-meta">
             <div class="stock-meta-box">
               <div class="stock-meta-label">最新價</div>
-              <div class="stock-meta-value">{{ item.latest_price }}</div>
+              <div class="stock-meta-value">{{ item.get("price", "N/A") }}</div>
+            </div>
+            <div class="stock-meta-box">
+              <div class="stock-meta-label">MA20</div>
+              <div class="stock-meta-value">{{ item.get("ma20", "N/A") }}</div>
             </div>
             <div class="stock-meta-box">
               <div class="stock-meta-label">合理價</div>
-              <div class="stock-meta-value">{{ item.fair_value }}</div>
+              <div class="stock-meta-value">{{ item.get("fair_value", "N/A") }}</div>
             </div>
           </div>
 
-          <div class="stock-reason">{{ item.reason }}</div>
+          <div class="stock-reason">{{ item.get("reason", "無分析原因") }}</div>
         </div>
         {% endfor %}
+
+        {% if not daily_selection.get("risk_list", []) %}
+        <div class="info-item">
+          <div class="value">目前尚無風險名單。</div>
+        </div>
+        {% endif %}
       </div>
     </section>
 
