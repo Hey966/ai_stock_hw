@@ -122,7 +122,7 @@ def home():
 @app.route("/stock")
 @requires_auth
 def stock_page():
-    symbol = request.args.get("symbol", "2330").strip()
+    symbol = request.args.get("symbol").strip()
 
     try:
         report = build_structured_report(symbol)
