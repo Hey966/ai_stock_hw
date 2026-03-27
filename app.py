@@ -51,12 +51,27 @@ def load_daily_selection():
         with open(DAILY_SELECTION_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        if not isinstance(data, dict):
+            return default_data
+
         data.setdefault("date", "尚未產生")
         data.setdefault("updated_at", "尚未產生")
         data.setdefault("top_buy", [])
         data.setdefault("watch_hold", [])
         data.setdefault("risk_list", [])
         data.setdefault("summary", default_data["summary"])
+
+        if not isinstance(data["summary"], dict):
+            data["summary"] = default_data["summary"]
+
+        data["summary"].setdefault("top_buy_count", len(data["top_buy"]))
+        data["summary"].setdefault("watch_hold_count", len(data["watch_hold"]))
+        data["summary"].setdefault("risk_list_count", len(data["risk_list"]))
+        data["summary"].setdefault(
+            "source_total",
+            len(data["top_buy"]) + len(data["watch_hold"]) + len(data["risk_list"]),
+        )
+
         return data
     except Exception:
         return default_data
@@ -211,12 +226,16 @@ def tools():
         if request.method == "POST":
             if mode == "risk":
                 positions = []
+
                 for item in positions_text.split(","):
                     item = item.strip()
                     if not item:
                         continue
 
-                    symbol_part, weight_part = item.split(":")
+                    if ":" not in item:
+                        raise ValueError("投資組合格式錯誤，請使用 2330:40,2317:35 這種格式。")
+
+                    symbol_part, weight_part = item.split(":", 1)
                     positions.append(
                         {
                             "symbol": symbol_part.strip(),
