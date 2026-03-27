@@ -1,0 +1,8 @@
+flask
+gunicorn
+requests
+paho-mqtt
+yfinance
+pandas
+numpy
+python-dotenv
