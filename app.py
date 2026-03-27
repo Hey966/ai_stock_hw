@@ -62,8 +62,15 @@ def load_daily_selection():
         return default_data
 
 
+@app.route("/healthz")
+def healthz():
+    return jsonify({
+        "status": "ok",
+        "message": "AI stock server running 🚀"
+    })
+
+
 @app.route("/")
-@requires_auth
 def home():
     try:
         market_sections = load_market_scan_cache()
@@ -291,4 +298,5 @@ def tools():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
