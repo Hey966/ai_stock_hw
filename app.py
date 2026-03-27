@@ -29,6 +29,9 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DAILY_SELECTION_PATH = os.path.join(DATA_DIR, "daily_selection.json")
 
 
+# ========================
+# 📦 工具：讀取每日資料
+# ========================
 def load_daily_selection():
     default_data = {
         "date": "尚未產生",
@@ -77,6 +80,9 @@ def load_daily_selection():
         return default_data
 
 
+# ========================
+# ✅ 健康檢查（Railway 必備）
+# ========================
 @app.route("/healthz")
 def healthz():
     return jsonify({
@@ -85,6 +91,9 @@ def healthz():
     })
 
 
+# ========================
+# 🏠 首頁
+# ========================
 @app.route("/")
 def home():
     try:
@@ -107,6 +116,9 @@ def home():
         )
 
 
+# ========================
+# 📊 個股分析
+# ========================
 @app.route("/stock")
 @requires_auth
 def stock_page():
@@ -136,6 +148,9 @@ def stock_page():
         )
 
 
+# ========================
+# 📈 市場頁
+# ========================
 @app.route("/market")
 @requires_auth
 def market_page():
@@ -157,6 +172,9 @@ def market_page():
         )
 
 
+# ========================
+# 📅 每日策略
+# ========================
 @app.route("/daily")
 @requires_auth
 def daily_page():
@@ -178,8 +196,10 @@ def daily_page():
         )
 
 
+# ========================
+# 🔌 API
+# ========================
 @app.route("/api/market-data")
-@requires_auth
 def api_market_data():
     try:
         data = load_market_scan_cache()
@@ -189,7 +209,6 @@ def api_market_data():
 
 
 @app.route("/api/daily-selection")
-@requires_auth
 def api_daily_selection():
     try:
         data = load_daily_selection()
@@ -198,124 +217,35 @@ def api_daily_selection():
         return jsonify({"error": str(e)}), 500
 
 
+# ========================
+# 🧠 工具頁
+# ========================
 @app.route("/tools", methods=["GET", "POST"])
 @requires_auth
 def tools():
-    mode = request.values.get("mode", "risk")
-    target = request.values.get("target", "").strip()
-    benchmark = request.values.get("benchmark", "").strip()
-    factors = request.values.get("factors", "").strip()
-    positions_text = request.values.get("positions", "").strip()
-
-    price = request.values.get("price", "100").strip()
-    face_value = request.values.get("face_value", "100").strip()
-    coupon_rate = request.values.get("coupon_rate", "0.03").strip()
-    years_to_maturity = request.values.get("years_to_maturity", "5").strip()
-    credit_rating = request.values.get("credit_rating", "A").strip()
-
-    risk_result = None
-    industry_result = None
-    fixed_income_result = None
-
-    stock_labels = []
-    stock_weights = []
-    industry_labels = []
-    industry_weights = []
-
     try:
-        if request.method == "POST":
-            if mode == "risk":
-                positions = []
-
-                for item in positions_text.split(","):
-                    item = item.strip()
-                    if not item:
-                        continue
-
-                    if ":" not in item:
-                        raise ValueError("投資組合格式錯誤，請使用 2330:40,2317:35 這種格式。")
-
-                    symbol_part, weight_part = item.split(":", 1)
-                    positions.append(
-                        {
-                            "symbol": symbol_part.strip(),
-                            "weight": float(weight_part.strip()),
-                        }
-                    )
-
-                risk_result = analyze_portfolio_risk(
-                    positions=positions,
-                    benchmark=benchmark,
-                    factors=factors,
-                )
-
-                stock_labels = [
-                    f"{p['name']} ({p['symbol']})"
-                    for p in risk_result.get("positions", [])
-                ]
-                stock_weights = [
-                    p["weight"] for p in risk_result.get("positions", [])
-                ]
-                industry_labels = [
-                    i["industry"]
-                    for i in risk_result.get("industry_concentration", [])
-                ]
-                industry_weights = [
-                    i["weight"]
-                    for i in risk_result.get("industry_concentration", [])
-                ]
-
-            elif mode == "industry":
-                industry_result = analyze_industry(
-                    target=target,
-                    benchmark=benchmark,
-                    factors=factors,
-                )
-
-            elif mode == "fixed_income":
-                fixed_income_result = analyze_fixed_income(
-                    target_name=target,
-                    benchmark=benchmark,
-                    factors=factors,
-                    price=float(price),
-                    face_value=float(face_value),
-                    coupon_rate=float(coupon_rate),
-                    years_to_maturity=float(years_to_maturity),
-                    credit_rating=credit_rating,
-                )
-
+        return render_template_string(
+            TOOLS_TEMPLATE,
+            base_style=BASE_STYLE,
+            live_script=LIVE_SCRIPT,
+        )
     except Exception as e:
         return render_template_string(
             ERROR_TEMPLATE,
             base_style=BASE_STYLE,
-            title="進階分析工具失敗",
+            title="工具頁錯誤",
             msg=str(e),
         )
 
-    return render_template_string(
-        TOOLS_TEMPLATE,
-        base_style=BASE_STYLE,
-        mode=mode,
-        target=target,
-        benchmark=benchmark,
-        factors=factors,
-        positions_text=positions_text,
-        price=price,
-        face_value=face_value,
-        coupon_rate=coupon_rate,
-        years_to_maturity=years_to_maturity,
-        credit_rating=credit_rating,
-        risk_result=risk_result,
-        industry_result=industry_result,
-        fixed_income_result=fixed_income_result,
-        stock_labels=stock_labels,
-        stock_weights=stock_weights,
-        industry_labels=industry_labels,
-        industry_weights=industry_weights,
-        live_script=LIVE_SCRIPT,
-    )
 
-
+# ========================
+# 🚀 啟動（重點）
+# ========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False   # 🚨 一定要關掉
+    )
