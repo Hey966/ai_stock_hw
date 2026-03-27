@@ -6,3 +6,5 @@ yfinance
 pandas
 numpy
 python-dotenv
+lxml
+html5lib
