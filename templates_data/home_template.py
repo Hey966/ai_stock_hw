@@ -132,6 +132,35 @@ HOME_TEMPLATE = """
       </div>
     </section>
 
+
+    <section class="card landing-sync-card">
+      <h2 class="section-title"><span class="section-num">2A</span>最新資訊同步</h2>
+      <div class="status-grid">
+        <div class="status-pill">
+          <div class="status-label">市場掃描</div>
+          <div class="status-value">手動同步最新市場快取</div>
+          <div style="margin-top: 12px;">
+            <button type="button" onclick="runLatestSync('/api/market-scan/run?limit=20', '正在更新市場掃描，完成後會自動刷新頁面')">
+              更新市場掃描
+            </button>
+          </div>
+        </div>
+
+        <div class="status-pill">
+          <div class="status-label">今日策略</div>
+          <div class="status-value">重新整理今日策略與觀察名單</div>
+          <div style="margin-top: 12px;">
+            <button type="button" onclick="runLatestSync('/api/daily-strategy/run?limit=20', '正在更新今日策略，完成後會自動刷新頁面')">
+              更新今日策略
+            </button>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 10px; font-size: 14px; opacity: .78;">
+        提示：這兩個按鈕會直接向後端抓最新股市資料，更新完成後自動刷新首頁摘要。
+      </div>
+    </section>
+
     <section class="card landing-summary-card">
       <h2 class="section-title"><span class="section-num">2</span>快速摘要</h2>
       <div class="landing-summary-grid">
@@ -217,6 +246,26 @@ HOME_TEMPLATE = """
 
     <div class="footer">AI Stock Dashboard</div>
   </div>
+
+  <script>
+    async function runLatestSync(url, loadingMessage) {
+      try {
+        alert(loadingMessage);
+        const response = await fetch(url, { method: "GET" });
+        const data = await response.json();
+
+        if (!response.ok || data.status === "error") {
+          throw new Error(data.error || "更新失敗");
+        }
+
+        alert("更新完成，頁面即將刷新");
+        window.location.reload();
+      } catch (error) {
+        alert("更新失敗：" + error.message);
+      }
+    }
+  </script>
+
   {{ live_script|safe }}
 </body>
 </html>

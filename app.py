@@ -1,44 +1,41 @@
-from __future__ import annotations
-
+import os
 import json
 import math
-import os
 import time
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 import yfinance as yf
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, request, jsonify, render_template_string
 
-from templates_data.daily_template import DAILY_TEMPLATE
-from templates_data.error_template import ERROR_TEMPLATE
-from templates_data.home_template import HOME_TEMPLATE
 from templates_data.live_script import LIVE_SCRIPT
-from templates_data.market_template import MARKET_TEMPLATE
-from templates_data.stock_template import STOCK_TEMPLATE
-from templates_data.style import BASE_STYLE
+from templates_data.home_template import HOME_TEMPLATE
 from templates_data.tools_template import TOOLS_TEMPLATE
+from templates_data.error_template import ERROR_TEMPLATE
+from templates_data.style import BASE_STYLE
+from templates_data.stock_template import STOCK_TEMPLATE
+from templates_data.market_template import MARKET_TEMPLATE
+from templates_data.daily_template import DAILY_TEMPLATE
 
-from core.analysis_tools import (
-    analyze_fixed_income,
-    analyze_industry,
-    analyze_portfolio_risk,
-)
 from core.auth import requires_auth
-from core.tw_stock_fundamental import build_structured_report
+from core.market_cache import load_market_scan_cache
 from core.ui_helpers import suggestion_class
+from core.tw_stock_fundamental import build_structured_report
+from core.analysis_tools import (
+    analyze_portfolio_risk,
+    analyze_industry,
+    analyze_fixed_income,
+)
 
 app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-CACHE_DIR = os.path.join(DATA_DIR, "cache")
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(CACHE_DIR, exist_ok=True)
-
-MARKET_SCAN_PATH = os.path.join(CACHE_DIR, "market_scan.json")
 DAILY_SELECTION_PATH = os.path.join(DATA_DIR, "daily_selection.json")
+CACHE_DIR = os.path.join(DATA_DIR, "cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
+MARKET_SCAN_PATH = os.path.join(CACHE_DIR, "market_scan.json")
 
 TWSE_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
 TPEX_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4"
@@ -48,74 +45,9 @@ REQUEST_SLEEP_SECONDS = float(os.environ.get("SCAN_SLEEP_SECONDS", "0.12"))
 
 
 # ========================
-# 📦 基本工具
+# 📦 工具：讀取每日資料
 # ========================
-def safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        if value is None:
-            return default
-        if isinstance(value, float) and math.isnan(value):
-            return default
-        return float(value)
-    except Exception:
-        return default
-
-
-# ========================
-# 📦 市場快取讀取
-# ========================
-def load_market_scan_cache() -> dict[str, Any]:
-    default_data = {
-        "updated_at": "N/A",
-        "total_scanned": 0,
-        "buy_count": 0,
-        "hold_count": 0,
-        "sell_count": 0,
-        "watch_count": 0,
-        "error_count": 0,
-        "buy": [],
-        "hold": [],
-        "sell": [],
-        "watch": [],
-        "errors": [],
-    }
-
-    if not os.path.exists(MARKET_SCAN_PATH):
-        return default_data
-
-    try:
-        with open(MARKET_SCAN_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        if not isinstance(data, dict):
-            return default_data
-
-        for key, value in default_data.items():
-            data.setdefault(key, value)
-
-        data["buy_count"] = int(data.get("buy_count", len(data.get("buy", []))))
-        data["hold_count"] = int(data.get("hold_count", len(data.get("hold", []))))
-        data["sell_count"] = int(data.get("sell_count", len(data.get("sell", []))))
-        data["watch_count"] = int(data.get("watch_count", len(data.get("watch", []))))
-        data["error_count"] = int(data.get("error_count", len(data.get("errors", []))))
-        data["total_scanned"] = int(
-            data.get(
-                "total_scanned",
-                data["buy_count"]
-                + data["hold_count"]
-                + data["sell_count"]
-                + data["watch_count"],
-            )
-        )
-        return data
-    except Exception:
-        return default_data
-
-
-# ========================
-# 📦 每日策略讀取
-# ========================
-def load_daily_selection() -> dict[str, Any]:
+def load_daily_selection():
     default_data = {
         "date": "尚未產生",
         "updated_at": "尚未產生",
@@ -164,8 +96,19 @@ def load_daily_selection() -> dict[str, Any]:
 
 
 # ========================
-# 📦 台股清單
+# 📦 最新股市同步工具
 # ========================
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, float) and math.isnan(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
 def _parse_isin_table(url: str, suffix: str) -> list[dict[str, str]]:
     tables = pd.read_html(url, encoding="utf-8")
     if not tables:
@@ -187,22 +130,15 @@ def _parse_isin_table(url: str, suffix: str) -> list[dict[str, str]]:
 
         code = parts[0].strip()
         name = " ".join(parts[1:]).strip()
-
         if not code.isdigit() or len(code) != 4:
             continue
 
-        results.append(
-            {
-                "symbol": code,
-                "name": name,
-                "ticker": f"{code}{suffix}",
-            }
-        )
+        results.append({"symbol": code, "name": name, "ticker": f"{code}{suffix}"})
     return results
 
 
 def get_tw_stock_universe() -> list[dict[str, str]]:
-    universe = []
+    universe: list[dict[str, str]] = []
     universe.extend(_parse_isin_table(TWSE_ISIN_URL, ".TW"))
     universe.extend(_parse_isin_table(TPEX_ISIN_URL, ".TWO"))
 
@@ -217,9 +153,6 @@ def get_tw_stock_universe() -> list[dict[str, str]]:
     return deduped
 
 
-# ========================
-# 📦 掃描與策略
-# ========================
 def estimate_fair_value(info: dict[str, Any], price: float) -> float:
     target_mean = safe_float(info.get("targetMeanPrice"))
     target_median = safe_float(info.get("targetMedianPrice"))
@@ -412,7 +345,10 @@ def generate_daily_selection() -> dict[str, Any]:
 # ========================
 @app.route("/healthz")
 def healthz():
-    return jsonify({"status": "ok", "message": "AI stock server running 🚀"})
+    return jsonify({
+        "status": "ok",
+        "message": "AI stock server running 🚀"
+    })
 
 
 # ========================
@@ -447,12 +383,51 @@ def home():
 @requires_auth
 def stock_page():
     symbol = (request.args.get("symbol") or "").strip()
+
     if not symbol:
         return render_template_string(
-            ERROR_TEMPLATE,
+            """
+            <!doctype html>
+            <html lang="zh-Hant">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>個股搜尋</title>
+              {{ base_style|safe }}
+            </head>
+            <body>
+              <div class="container">
+                <div class="nav">
+                  <a href="/">首頁</a>
+                  <a href="/stock">個股分析</a>
+                  <a href="/market">市場掃描</a>
+                  <a href="/daily">今日策略</a>
+                  <a href="/tools">進階分析工具</a>
+                </div>
+
+                <section class="card">
+                  <h1>個股搜尋</h1>
+                  <p>請輸入股票代號，例如 2330、2317、2454、0050</p>
+
+                  <div class="search-box">
+                    <form method="get" action="/stock">
+                      <div class="search-row">
+                        <input
+                          type="text"
+                          name="symbol"
+                          placeholder="輸入股票代號"
+                          required
+                        >
+                        <button type="submit">開始分析</button>
+                      </div>
+                    </form>
+                  </div>
+                </section>
+              </div>
+            </body>
+            </html>
+            """,
             base_style=BASE_STYLE,
-            title="個股分析失敗",
-            msg="缺少 symbol 參數",
         )
 
     try:
@@ -465,7 +440,9 @@ def stock_page():
             symbol=symbol,
             report=report,
             valuation=valuation,
-            suggestion_css=suggestion_class(valuation.get("investment_suggestion", "")),
+            suggestion_css=suggestion_class(
+                valuation.get("investment_suggestion", "")
+            ),
             live_script=LIVE_SCRIPT,
         )
     except Exception as e:
@@ -526,12 +503,13 @@ def daily_page():
 
 
 # ========================
-# 🔌 原有 API
+# 🔌 API
 # ========================
 @app.route("/api/market-data")
 def api_market_data():
     try:
-        return jsonify(load_market_scan_cache())
+        data = load_market_scan_cache()
+        return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -539,14 +517,12 @@ def api_market_data():
 @app.route("/api/daily-selection")
 def api_daily_selection():
     try:
-        return jsonify(load_daily_selection())
+        data = load_daily_selection()
+        return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# ========================
-# 🔌 新增掃描 API
-# ========================
 @app.route("/api/market-scan")
 def api_market_scan():
     try:
@@ -555,7 +531,7 @@ def api_market_scan():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/market-scan/run", methods=["POST"])
+@app.route("/api/market-scan/run", methods=["GET", "POST"])
 def api_market_scan_run():
     try:
         limit = request.args.get("limit", type=int)
@@ -573,7 +549,7 @@ def api_daily_strategy():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/daily-strategy/run", methods=["POST"])
+@app.route("/api/daily-strategy/run", methods=["GET", "POST"])
 def api_daily_strategy_run():
     try:
         if request.args.get("scan_first", "1") == "1":
@@ -601,32 +577,10 @@ def api_tw_universe():
 @requires_auth
 def tools():
     try:
-        result: dict[str, Any] | None = None
-        error_msg = None
-
-        if request.method == "POST":
-            tool_type = (request.form.get("tool_type") or "").strip()
-            payload = (request.form.get("payload") or "").strip()
-
-            try:
-                parsed_payload = json.loads(payload) if payload else {}
-                if tool_type == "portfolio_risk":
-                    result = analyze_portfolio_risk(parsed_payload)
-                elif tool_type == "industry":
-                    result = analyze_industry(parsed_payload)
-                elif tool_type == "fixed_income":
-                    result = analyze_fixed_income(parsed_payload)
-                else:
-                    error_msg = "不支援的工具模式"
-            except Exception as exc:
-                error_msg = str(exc)
-
         return render_template_string(
             TOOLS_TEMPLATE,
             base_style=BASE_STYLE,
             live_script=LIVE_SCRIPT,
-            result=result,
-            error_msg=error_msg,
         )
     except Exception as e:
         return render_template_string(
@@ -638,8 +592,13 @@ def tools():
 
 
 # ========================
-# 🚀 啟動
+# 🚀 啟動（重點）
 # ========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False   # 🚨 一定要關掉
+    )
