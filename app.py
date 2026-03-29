@@ -447,12 +447,51 @@ def home():
 @requires_auth
 def stock_page():
     symbol = (request.args.get("symbol") or "").strip()
+
     if not symbol:
         return render_template_string(
-            ERROR_TEMPLATE,
+            """
+            <!doctype html>
+            <html lang="zh-Hant">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>個股搜尋</title>
+              {{ base_style|safe }}
+            </head>
+            <body>
+              <div class="container">
+                <div class="nav">
+                  <a href="/">首頁</a>
+                  <a href="/stock">個股分析</a>
+                  <a href="/market">市場掃描</a>
+                  <a href="/daily">今日策略</a>
+                  <a href="/tools">進階分析工具</a>
+                </div>
+
+                <section class="card">
+                  <h1>個股搜尋</h1>
+                  <p>請輸入股票代號，例如 2330、2317、2454、0050</p>
+
+                  <div class="search-box">
+                    <form method="get" action="/stock">
+                      <div class="search-row">
+                        <input
+                          type="text"
+                          name="symbol"
+                          placeholder="輸入股票代號"
+                          required
+                        >
+                        <button type="submit">開始分析</button>
+                      </div>
+                    </form>
+                  </div>
+                </section>
+              </div>
+            </body>
+            </html>
+            """,
             base_style=BASE_STYLE,
-            title="個股分析失敗",
-            msg="缺少 symbol 參數",
         )
 
     try:
