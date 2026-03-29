@@ -4,7 +4,7 @@ HOME_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI 投資分析平台</title>
+  <title>台股投資分析平台</title>
   {{ base_style|safe }}
 </head>
 <body>
@@ -18,19 +18,40 @@ HOME_TEMPLATE = """
     </div>
 
     <section class="landing-hero">
-      <div class="landing-badge">AI × 台股 × 新聞 × 價格歷程</div>
-      <h1>打造你的智慧投資首頁</h1>
+      <div class="landing-badge">台股投資分析平台</div>
+      <h1>把個股研究、盤勢掃描與每日重點放在同一個首頁</h1>
       <p class="landing-subtitle">
-        這不是單純的股票查詢頁，而是一套整合基本面、價格結構、新聞事件、
-        市場掃描與每日策略的 AI 投資分析平台。
+        以更清楚的方式整理市場快照、個股查詢與每日策略。
+        先看整體盤勢，再回到單一股票做判斷，讓操作流程更一致。
       </p>
 
       <div class="landing-actions">
-        <a class="cta-primary" href="/stock?symbol=2330">開始個股分析</a>
+        <a class="cta-primary" href="/stock?symbol=2330">查詢個股</a>
         <a class="cta-secondary" href="/market">查看市場掃描</a>
       </div>
 
-      <div class="search-box" style="margin-top: 22px;">
+      <div class="status-grid" style="margin-top: 18px;">
+        <div class="status-pill">
+          <div class="status-label">市場更新</div>
+          <div class="status-value" id="hero-market-updated-at">
+            {{ market_sections.get("updated_at", "N/A") }}
+          </div>
+        </div>
+        <div class="status-pill">
+          <div class="status-label">今日策略</div>
+          <div class="status-value" id="hero-daily-updated-at">
+            {{ daily_selection.get("updated_at", "尚未產生") }}
+          </div>
+        </div>
+        <div class="status-pill">
+          <div class="status-label">分析日期</div>
+          <div class="status-value" id="hero-daily-date">
+            {{ daily_selection.get("date", "尚未產生") }}
+          </div>
+        </div>
+      </div>
+
+      <div class="search-box" style="margin-top: 18px;">
         <form method="get" action="/stock">
           <div class="search-row">
             <input
@@ -39,130 +60,14 @@ HOME_TEMPLATE = """
               placeholder="輸入股票代號，例如 2330、2317、2454、0050"
               required
             >
-            <button type="submit">查詢個股</button>
+            <button type="submit">開始查詢</button>
           </div>
         </form>
       </div>
     </section>
 
-    <section class="feature-showcase">
-      <div class="feature-card feature-card-a">
-        <div class="feature-icon">📘</div>
-        <div class="feature-title">個股分析</div>
-        <div class="feature-text">
-          查看單一股票的基本面、價格歷程、新聞分析與綜合評分。
-        </div>
-        <a href="/stock?symbol=2330">前往分析</a>
-      </div>
-
-      <div class="feature-card feature-card-b">
-        <div class="feature-icon">📡</div>
-        <div class="feature-title">市場掃描</div>
-        <div class="feature-text">
-          自動分類買入區、持有區、賣出區與觀察區，快速掌握全市場狀態。
-        </div>
-        <a href="/market">前往市場掃描</a>
-      </div>
-
-      <div class="feature-card feature-card-c">
-        <div class="feature-icon">📅</div>
-        <div class="feature-title">今日策略</div>
-        <div class="feature-text">
-          每日整理 Top Buy、今日觀察與風險名單，快速抓重點。
-        </div>
-        <a href="/daily">前往今日策略</a>
-      </div>
-
-      <div class="feature-card feature-card-d">
-        <div class="feature-icon">🧠</div>
-        <div class="feature-title">進階工具</div>
-        <div class="feature-text">
-          進一步分析投資組合風險、產業結構與固定收益商品。
-        </div>
-        <a href="/tools">前往工具頁</a>
-      </div>
-    </section>
-
-    <section class="card landing-status-card">
-      <h2 class="section-title"><span class="section-num">1</span>系統狀態</h2>
-      <div class="status-grid">
-        <div class="status-pill">
-          <div class="status-label">固定網址</div>
-          <div class="status-value">
-            <a href="https://app.ai966.online" target="_blank" rel="noopener noreferrer">
-              app.ai966.online
-            </a>
-          </div>
-        </div>
-
-        <div class="status-pill">
-          <div class="status-label">市場更新</div>
-          <div class="status-value" id="home-market-updated-at">
-            {{ market_sections.get("updated_at", "N/A") }}
-          </div>
-        </div>
-
-        <div class="status-pill">
-          <div class="status-label">掃描總數</div>
-          <div class="status-value" id="home-market-total-scanned">
-            {{ market_sections.get("total_scanned", 0) }}
-          </div>
-        </div>
-
-        <div class="status-pill">
-          <div class="status-label">錯誤數量</div>
-          <div class="status-value" id="home-market-error-count">
-            {{ market_sections.get("error_count", 0) }}
-          </div>
-        </div>
-
-        <div class="status-pill">
-          <div class="status-label">今日策略更新</div>
-          <div class="status-value" id="home-daily-updated-at">
-            {{ daily_selection.get("updated_at", "尚未產生") }}
-          </div>
-        </div>
-
-        <div class="status-pill">
-          <div class="status-label">分析日期</div>
-          <div class="status-value" id="home-daily-date">
-            {{ daily_selection.get("date", "尚未產生") }}
-          </div>
-        </div>
-      </div>
-    </section>
-
-
-    <section class="card landing-sync-card">
-      <h2 class="section-title"><span class="section-num">2A</span>最新資訊同步</h2>
-      <div class="status-grid">
-        <div class="status-pill">
-          <div class="status-label">市場掃描</div>
-          <div class="status-value">手動同步最新市場快取</div>
-          <div style="margin-top: 12px;">
-            <button type="button" onclick="runLatestSync('/api/market-scan/run?limit=20', '正在更新市場掃描，完成後會自動刷新頁面')">
-              更新市場掃描
-            </button>
-          </div>
-        </div>
-
-        <div class="status-pill">
-          <div class="status-label">今日策略</div>
-          <div class="status-value">重新整理今日策略與觀察名單</div>
-          <div style="margin-top: 12px;">
-            <button type="button" onclick="runLatestSync('/api/daily-strategy/run?limit=20', '正在更新今日策略，完成後會自動刷新頁面')">
-              更新今日策略
-            </button>
-          </div>
-        </div>
-      </div>
-      <div style="margin-top: 10px; font-size: 14px; opacity: .78;">
-        提示：這兩個按鈕會直接向後端抓最新股市資料，更新完成後自動刷新首頁摘要。
-      </div>
-    </section>
-
     <section class="card landing-summary-card">
-      <h2 class="section-title"><span class="section-num">2</span>快速摘要</h2>
+      <h2 class="section-title"><span class="section-num">1</span>市場與策略摘要</h2>
       <div class="landing-summary-grid">
         <div class="summary-bubble bubble-green">
           <div class="summary-bubble-label">買入區</div>
@@ -215,30 +120,145 @@ HOME_TEMPLATE = """
       </div>
     </section>
 
+    <section class="card landing-sync-card">
+      <h2 class="section-title"><span class="section-num">2</span>資料更新</h2>
+      <div class="status-grid">
+        <div class="status-pill">
+          <div class="status-label">市場掃描</div>
+          <div class="status-value">重新抓取最新市場快取與分類結果</div>
+          <div style="margin-top: 12px;">
+            <button type="button" onclick="runLatestSync('/api/market-scan/run?limit=20', '正在更新市場掃描，完成後會自動刷新頁面')">
+              更新市場掃描
+            </button>
+          </div>
+        </div>
+
+        <div class="status-pill">
+          <div class="status-label">今日策略</div>
+          <div class="status-value">重新整理 Top Buy、觀察名單與風險名單</div>
+          <div style="margin-top: 12px;">
+            <button type="button" onclick="runLatestSync('/api/daily-strategy/run?limit=20', '正在更新今日策略，完成後會自動刷新頁面')">
+              更新今日策略
+            </button>
+          </div>
+        </div>
+
+        <div class="status-pill">
+          <div class="status-label">固定網址</div>
+          <div class="status-value">
+            <a href="https://app.ai966.online" target="_blank" rel="noopener noreferrer">
+              app.ai966.online
+            </a>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 10px; font-size: 14px; color: #667085; line-height: 1.7;">
+        需要立即刷新資料時，可直接使用上方按鈕。更新完成後會自動重新整理首頁數據。
+      </div>
+    </section>
+
+    <section class="feature-showcase">
+      <div class="feature-card feature-card-a">
+        <div class="feature-icon">📘</div>
+        <div class="feature-title">個股分析</div>
+        <div class="feature-text">
+          從單一股票出發，查看企業概覽、財務指標、估值與新聞重點。
+        </div>
+        <a href="/stock?symbol=2330">前往個股分析</a>
+      </div>
+
+      <div class="feature-card feature-card-b">
+        <div class="feature-icon">📡</div>
+        <div class="feature-title">市場掃描</div>
+        <div class="feature-text">
+          用分類方式快速掌握目前盤勢分布，先看全貌，再找標的。
+        </div>
+        <a href="/market">前往市場掃描</a>
+      </div>
+
+      <div class="feature-card feature-card-c">
+        <div class="feature-icon">📅</div>
+        <div class="feature-title">今日策略</div>
+        <div class="feature-text">
+          把每日重點整理成 Top Buy、觀察名單與風險名單，方便快速瀏覽。
+        </div>
+        <a href="/daily">前往今日策略</a>
+      </div>
+
+      <div class="feature-card feature-card-d">
+        <div class="feature-icon">🧰</div>
+        <div class="feature-title">進階工具</div>
+        <div class="feature-text">
+          針對投資組合、產業與固定收益等主題做進一步分析。
+        </div>
+        <a href="/tools">前往工具頁</a>
+      </div>
+    </section>
+
+    <section class="card landing-status-card">
+      <h2 class="section-title"><span class="section-num">3</span>系統狀態</h2>
+      <div class="status-grid">
+        <div class="status-pill">
+          <div class="status-label">市場更新</div>
+          <div class="status-value" id="home-market-updated-at">
+            {{ market_sections.get("updated_at", "N/A") }}
+          </div>
+        </div>
+
+        <div class="status-pill">
+          <div class="status-label">掃描總數</div>
+          <div class="status-value" id="home-market-total-scanned">
+            {{ market_sections.get("total_scanned", 0) }}
+          </div>
+        </div>
+
+        <div class="status-pill">
+          <div class="status-label">錯誤數量</div>
+          <div class="status-value" id="home-market-error-count">
+            {{ market_sections.get("error_count", 0) }}
+          </div>
+        </div>
+
+        <div class="status-pill">
+          <div class="status-label">今日策略更新</div>
+          <div class="status-value" id="home-daily-updated-at">
+            {{ daily_selection.get("updated_at", "尚未產生") }}
+          </div>
+        </div>
+
+        <div class="status-pill">
+          <div class="status-label">分析日期</div>
+          <div class="status-value" id="home-daily-date">
+            {{ daily_selection.get("date", "尚未產生") }}
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="card landing-guide-card">
-      <h2 class="section-title"><span class="section-num">3</span>怎麼使用</h2>
+      <h2 class="section-title"><span class="section-num">4</span>建議使用流程</h2>
       <div class="guide-steps">
         <div class="guide-step">
           <div class="guide-step-no">01</div>
           <div>
             <div class="guide-step-title">先看首頁摘要</div>
-            <div class="guide-step-text">快速掌握市場區塊與今日策略數量變化。</div>
+            <div class="guide-step-text">快速掌握市場區塊分布與今日策略數量，先建立整體盤勢感。</div>
           </div>
         </div>
 
         <div class="guide-step">
           <div class="guide-step-no">02</div>
           <div>
-            <div class="guide-step-title">輸入股票代號查詢</div>
-            <div class="guide-step-text">可直接在首頁搜尋 2330、2317、2454、0050 等標的。</div>
+            <div class="guide-step-title">再查個股</div>
+            <div class="guide-step-text">輸入股票代號，確認基本面、估值、新聞與價格結構。</div>
           </div>
         </div>
 
         <div class="guide-step">
           <div class="guide-step-no">03</div>
           <div>
-            <div class="guide-step-title">搭配市場掃描與今日策略</div>
-            <div class="guide-step-text">建立整體市場視角，再回頭確認標的。</div>
+            <div class="guide-step-title">需要時再更新資料</div>
+            <div class="guide-step-text">若你懷疑資料不是最新，可用同步按鈕立即刷新市場掃描與今日策略。</div>
           </div>
         </div>
       </div>
