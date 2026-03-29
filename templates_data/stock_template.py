@@ -25,13 +25,7 @@ STOCK_TEMPLATE = """
       <div class="search-box">
         <form method="get" action="/stock">
           <div class="search-row">
-            <input
-              type="text"
-              name="symbol"
-              value="{{ symbol }}"
-              placeholder="輸入股票代號，例如 2330"
-              required
-            >
+            <input type="text" name="symbol" value="{{ symbol }}" placeholder="輸入股票代號，例如 2330" required>
             <button type="submit">查詢個股</button>
           </div>
         </form>
