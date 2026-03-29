@@ -1,53 +1,117 @@
-import os
+from __future__ import annotations
+
 import json
 import math
+import os
 import time
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
+import requests
 import yfinance as yf
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
+from urllib3.exceptions import InsecureRequestWarning
 
-from templates_data.live_script import LIVE_SCRIPT
-from templates_data.home_template import HOME_TEMPLATE
-from templates_data.tools_template import TOOLS_TEMPLATE
-from templates_data.error_template import ERROR_TEMPLATE
-from templates_data.style import BASE_STYLE
-from templates_data.stock_template import STOCK_TEMPLATE
-from templates_data.market_template import MARKET_TEMPLATE
 from templates_data.daily_template import DAILY_TEMPLATE
+from templates_data.error_template import ERROR_TEMPLATE
+from templates_data.home_template import HOME_TEMPLATE
+from templates_data.live_script import LIVE_SCRIPT
+from templates_data.market_template import MARKET_TEMPLATE
+from templates_data.stock_template import STOCK_TEMPLATE
+from templates_data.style import BASE_STYLE
+from templates_data.tools_template import TOOLS_TEMPLATE
 
-from core.auth import requires_auth
-from core.market_cache import load_market_scan_cache
-from core.ui_helpers import suggestion_class
-from core.tw_stock_fundamental import build_structured_report
 from core.analysis_tools import (
-    analyze_portfolio_risk,
-    analyze_industry,
     analyze_fixed_income,
+    analyze_industry,
+    analyze_portfolio_risk,
 )
+from core.auth import requires_auth
+from core.tw_stock_fundamental import build_structured_report
+from core.ui_helpers import suggestion_class
+
+requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-DAILY_SELECTION_PATH = os.path.join(DATA_DIR, "daily_selection.json")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
+os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
+
 MARKET_SCAN_PATH = os.path.join(CACHE_DIR, "market_scan.json")
+DAILY_SELECTION_PATH = os.path.join(DATA_DIR, "daily_selection.json")
 
 TWSE_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
 TPEX_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4"
 DEFAULT_SCAN_LIMIT = int(os.environ.get("DEFAULT_SCAN_LIMIT", "50"))
 MAX_SCAN_LIMIT = int(os.environ.get("MAX_SCAN_LIMIT", "300"))
 REQUEST_SLEEP_SECONDS = float(os.environ.get("SCAN_SLEEP_SECONDS", "0.12"))
+ISIN_FETCH_TIMEOUT_SECONDS = int(os.environ.get("ISIN_FETCH_TIMEOUT_SECONDS", "20"))
 
 
-# ========================
-# 📦 工具：讀取每日資料
-# ========================
-def load_daily_selection():
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, float) and math.isnan(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def load_market_scan_cache() -> dict[str, Any]:
+    default_data = {
+        "updated_at": "N/A",
+        "total_scanned": 0,
+        "buy_count": 0,
+        "hold_count": 0,
+        "sell_count": 0,
+        "watch_count": 0,
+        "error_count": 0,
+        "buy": [],
+        "hold": [],
+        "sell": [],
+        "watch": [],
+        "errors": [],
+    }
+
+    if not os.path.exists(MARKET_SCAN_PATH):
+        return default_data
+
+    try:
+        with open(MARKET_SCAN_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            return default_data
+
+        for key, value in default_data.items():
+            data.setdefault(key, value)
+
+        data["buy_count"] = int(data.get("buy_count", len(data.get("buy", []))))
+        data["hold_count"] = int(data.get("hold_count", len(data.get("hold", []))))
+        data["sell_count"] = int(data.get("sell_count", len(data.get("sell", []))))
+        data["watch_count"] = int(data.get("watch_count", len(data.get("watch", []))))
+        data["error_count"] = int(data.get("error_count", len(data.get("errors", []))))
+        data["total_scanned"] = int(
+            data.get(
+                "total_scanned",
+                data["buy_count"]
+                + data["hold_count"]
+                + data["sell_count"]
+                + data["watch_count"],
+            )
+        )
+        return data
+    except Exception:
+        return default_data
+
+
+def load_daily_selection() -> dict[str, Any]:
     default_data = {
         "date": "尚未產生",
         "updated_at": "尚未產生",
@@ -95,22 +159,24 @@ def load_daily_selection():
         return default_data
 
 
-# ========================
-# 📦 最新股市同步工具
-# ========================
-def safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        if value is None:
-            return default
-        if isinstance(value, float) and math.isnan(value):
-            return default
-        return float(value)
-    except Exception:
-        return default
+def _fetch_isin_html(url: str) -> str:
+    response = requests.get(
+        url,
+        timeout=ISIN_FETCH_TIMEOUT_SECONDS,
+        verify=False,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; AIStockDashboard/1.0)",
+            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        },
+    )
+    response.raise_for_status()
+    response.encoding = response.apparent_encoding or "utf-8"
+    return response.text
 
 
 def _parse_isin_table(url: str, suffix: str) -> list[dict[str, str]]:
-    tables = pd.read_html(url, encoding="utf-8")
+    html = _fetch_isin_html(url)
+    tables = pd.read_html(html)
     if not tables:
         return []
 
@@ -130,15 +196,22 @@ def _parse_isin_table(url: str, suffix: str) -> list[dict[str, str]]:
 
         code = parts[0].strip()
         name = " ".join(parts[1:]).strip()
+
         if not code.isdigit() or len(code) != 4:
             continue
 
-        results.append({"symbol": code, "name": name, "ticker": f"{code}{suffix}"})
+        results.append(
+            {
+                "symbol": code,
+                "name": name,
+                "ticker": f"{code}{suffix}",
+            }
+        )
     return results
 
 
 def get_tw_stock_universe() -> list[dict[str, str]]:
-    universe: list[dict[str, str]] = []
+    universe = []
     universe.extend(_parse_isin_table(TWSE_ISIN_URL, ".TW"))
     universe.extend(_parse_isin_table(TPEX_ISIN_URL, ".TWO"))
 
@@ -340,20 +413,11 @@ def generate_daily_selection() -> dict[str, Any]:
     return data
 
 
-# ========================
-# ✅ 健康檢查（Railway 必備）
-# ========================
 @app.route("/healthz")
 def healthz():
-    return jsonify({
-        "status": "ok",
-        "message": "AI stock server running 🚀"
-    })
+    return jsonify({"status": "ok", "message": "AI stock server running 🚀"})
 
 
-# ========================
-# 🏠 首頁
-# ========================
 @app.route("/")
 def home():
     try:
@@ -376,9 +440,6 @@ def home():
         )
 
 
-# ========================
-# 📊 個股分析
-# ========================
 @app.route("/stock")
 @requires_auth
 def stock_page():
@@ -440,9 +501,7 @@ def stock_page():
             symbol=symbol,
             report=report,
             valuation=valuation,
-            suggestion_css=suggestion_class(
-                valuation.get("investment_suggestion", "")
-            ),
+            suggestion_css=suggestion_class(valuation.get("investment_suggestion", "")),
             live_script=LIVE_SCRIPT,
         )
     except Exception as e:
@@ -454,9 +513,6 @@ def stock_page():
         )
 
 
-# ========================
-# 📈 市場頁
-# ========================
 @app.route("/market")
 @requires_auth
 def market_page():
@@ -478,9 +534,6 @@ def market_page():
         )
 
 
-# ========================
-# 📅 每日策略
-# ========================
 @app.route("/daily")
 @requires_auth
 def daily_page():
@@ -502,14 +555,10 @@ def daily_page():
         )
 
 
-# ========================
-# 🔌 API
-# ========================
 @app.route("/api/market-data")
 def api_market_data():
     try:
-        data = load_market_scan_cache()
-        return jsonify(data)
+        return jsonify(load_market_scan_cache())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -517,8 +566,7 @@ def api_market_data():
 @app.route("/api/daily-selection")
 def api_daily_selection():
     try:
-        data = load_daily_selection()
-        return jsonify(data)
+        return jsonify(load_daily_selection())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -570,17 +618,36 @@ def api_tw_universe():
         return jsonify({"error": str(e)}), 500
 
 
-# ========================
-# 🧠 工具頁
-# ========================
 @app.route("/tools", methods=["GET", "POST"])
 @requires_auth
 def tools():
     try:
+        result: dict[str, Any] | None = None
+        error_msg = None
+
+        if request.method == "POST":
+            tool_type = (request.form.get("tool_type") or "").strip()
+            payload = (request.form.get("payload") or "").strip()
+
+            try:
+                parsed_payload = json.loads(payload) if payload else {}
+                if tool_type == "portfolio_risk":
+                    result = analyze_portfolio_risk(parsed_payload)
+                elif tool_type == "industry":
+                    result = analyze_industry(parsed_payload)
+                elif tool_type == "fixed_income":
+                    result = analyze_fixed_income(parsed_payload)
+                else:
+                    error_msg = "不支援的工具模式"
+            except Exception as exc:
+                error_msg = str(exc)
+
         return render_template_string(
             TOOLS_TEMPLATE,
             base_style=BASE_STYLE,
             live_script=LIVE_SCRIPT,
+            result=result,
+            error_msg=error_msg,
         )
     except Exception as e:
         return render_template_string(
@@ -591,14 +658,6 @@ def tools():
         )
 
 
-# ========================
-# 🚀 啟動（重點）
-# ========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False   # 🚨 一定要關掉
-    )
+    app.run(host="0.0.0.0", port=port, debug=False)
