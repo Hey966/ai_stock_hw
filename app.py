@@ -4,6 +4,7 @@ import json
 import math
 import os
 import time
+from io import StringIO
 from datetime import datetime
 from typing import Any
 
@@ -176,7 +177,7 @@ def _fetch_isin_html(url: str) -> str:
 
 def _parse_isin_table(url: str, suffix: str) -> list[dict[str, str]]:
     html = _fetch_isin_html(url)
-    tables = pd.read_html(html)
+    tables = pd.read_html(StringIO(html))
     if not tables:
         return []
 
