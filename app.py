@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import threading
 import time
 from io import StringIO
 from datetime import datetime
@@ -51,6 +52,15 @@ DEFAULT_SCAN_LIMIT = int(os.environ.get("DEFAULT_SCAN_LIMIT", "50"))
 MAX_SCAN_LIMIT = int(os.environ.get("MAX_SCAN_LIMIT", "300"))
 REQUEST_SLEEP_SECONDS = float(os.environ.get("SCAN_SLEEP_SECONDS", "0.12"))
 ISIN_FETCH_TIMEOUT_SECONDS = int(os.environ.get("ISIN_FETCH_TIMEOUT_SECONDS", "20"))
+
+HOURLY_UPDATE_ENABLED = os.environ.get("HOURLY_UPDATE_ENABLED", "1") == "1"
+HOURLY_UPDATE_INTERVAL_SECONDS = int(os.environ.get("HOURLY_UPDATE_INTERVAL_SECONDS", "3600"))
+HOURLY_UPDATE_LOOP_SLEEP_SECONDS = int(os.environ.get("HOURLY_UPDATE_LOOP_SLEEP_SECONDS", "60"))
+HOURLY_UPDATE_SCAN_LIMIT = int(os.environ.get("HOURLY_UPDATE_SCAN_LIMIT", str(DEFAULT_SCAN_LIMIT)))
+AUTO_UPDATE_STATE_PATH = os.path.join(CACHE_DIR, "auto_update_state.json")
+AUTO_UPDATE_LOCK_PATH = os.path.join(CACHE_DIR, "auto_update.lock")
+
+_hourly_updater_started = False
 
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -414,6 +424,149 @@ def generate_daily_selection() -> dict[str, Any]:
     return data
 
 
+def load_auto_update_state() -> dict[str, Any]:
+    default_data = {
+        "status": "idle",
+        "last_started_at": None,
+        "last_started_ts": 0,
+        "last_success_at": None,
+        "last_success_ts": 0,
+        "last_error": None,
+        "last_error_at": None,
+        "scan_limit": HOURLY_UPDATE_SCAN_LIMIT,
+    }
+
+    if not os.path.exists(AUTO_UPDATE_STATE_PATH):
+        return default_data
+
+    try:
+        with open(AUTO_UPDATE_STATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return default_data
+        for key, value in default_data.items():
+            data.setdefault(key, value)
+        return data
+    except Exception:
+        return default_data
+
+
+def save_auto_update_state(state: dict[str, Any]) -> None:
+    with open(AUTO_UPDATE_STATE_PATH, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def acquire_auto_update_lock() -> bool:
+    try:
+        fd = os.open(AUTO_UPDATE_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(f"{os.getpid()}\n{datetime.now().isoformat()}\n")
+        return True
+    except FileExistsError:
+        return False
+
+
+def release_auto_update_lock() -> None:
+    try:
+        if os.path.exists(AUTO_UPDATE_LOCK_PATH):
+            os.remove(AUTO_UPDATE_LOCK_PATH)
+    except Exception:
+        pass
+
+
+def should_run_hourly_update() -> bool:
+    state = load_auto_update_state()
+    last_success_ts = float(state.get("last_success_ts", 0) or 0)
+    if last_success_ts <= 0:
+        return True
+    return (time.time() - last_success_ts) >= HOURLY_UPDATE_INTERVAL_SECONDS
+
+
+def run_hourly_update_once() -> bool:
+    if not acquire_auto_update_lock():
+        return False
+
+    try:
+        state = load_auto_update_state()
+        now_ts = time.time()
+
+        last_success_ts = float(state.get("last_success_ts", 0) or 0)
+        if last_success_ts > 0 and (now_ts - last_success_ts) < HOURLY_UPDATE_INTERVAL_SECONDS:
+            return False
+
+        started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state.update(
+            {
+                "status": "running",
+                "last_started_at": started_at,
+                "last_started_ts": now_ts,
+                "last_error": None,
+                "last_error_at": None,
+                "scan_limit": max(1, min(HOURLY_UPDATE_SCAN_LIMIT, MAX_SCAN_LIMIT)),
+            }
+        )
+        save_auto_update_state(state)
+
+        scan_limit = state["scan_limit"]
+        run_market_scan(limit=scan_limit)
+        generate_daily_selection()
+
+        success_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state.update(
+            {
+                "status": "idle",
+                "last_success_at": success_at,
+                "last_success_ts": time.time(),
+                "last_error": None,
+                "last_error_at": None,
+            }
+        )
+        save_auto_update_state(state)
+        return True
+
+    except Exception as exc:
+        state = load_auto_update_state()
+        state.update(
+            {
+                "status": "error",
+                "last_error": str(exc),
+                "last_error_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+        save_auto_update_state(state)
+        return False
+    finally:
+        release_auto_update_lock()
+
+
+def hourly_update_loop() -> None:
+    while True:
+        try:
+            if HOURLY_UPDATE_ENABLED and should_run_hourly_update():
+                run_hourly_update_once()
+        except Exception:
+            pass
+        time.sleep(HOURLY_UPDATE_LOOP_SLEEP_SECONDS)
+
+
+def start_hourly_updater() -> None:
+    global _hourly_updater_started
+
+    if not HOURLY_UPDATE_ENABLED or _hourly_updater_started:
+        return
+
+    thread = threading.Thread(
+        target=hourly_update_loop,
+        name="hourly-stock-updater",
+        daemon=True,
+    )
+    thread.start()
+    _hourly_updater_started = True
+
+
+start_hourly_updater()
+
+
 @app.route("/healthz")
 def healthz():
     return jsonify({"status": "ok", "message": "AI stock server running 🚀"})
@@ -425,11 +578,14 @@ def home():
         market_sections = load_market_scan_cache()
         daily_selection = load_daily_selection()
 
+        auto_update_state = load_auto_update_state()
+
         return render_template_string(
             HOME_TEMPLATE,
             base_style=BASE_STYLE,
             market_sections=market_sections,
             daily_selection=daily_selection,
+            auto_update_state=auto_update_state,
             live_script=LIVE_SCRIPT,
         )
     except Exception as e:
@@ -615,6 +771,14 @@ def api_tw_universe():
     try:
         universe = get_tw_stock_universe()
         return jsonify({"count": len(universe), "items": universe[:200]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/auto-update-status")
+def api_auto_update_status():
+    try:
+        return jsonify(load_auto_update_state())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
