@@ -29,6 +29,20 @@ HOME_TEMPLATE = """
         <a class="cta-primary" href="/stock?symbol=2330">開始個股分析</a>
         <a class="cta-secondary" href="/market">查看市場掃描</a>
       </div>
+
+      <div class="search-box" style="margin-top: 22px;">
+        <form method="get" action="/stock">
+          <div class="search-row">
+            <input
+              type="text"
+              name="symbol"
+              placeholder="輸入股票代號，例如 2330、2317、2454、0050"
+              required
+            >
+            <button type="submit">查詢個股</button>
+          </div>
+        </form>
+      </div>
     </section>
 
     <section class="feature-showcase">
@@ -186,8 +200,8 @@ HOME_TEMPLATE = """
         <div class="guide-step">
           <div class="guide-step-no">02</div>
           <div>
-            <div class="guide-step-title">再進入個股分析</div>
-            <div class="guide-step-text">查看單一股票的基本面、價格歷程與新聞。</div>
+            <div class="guide-step-title">輸入股票代號查詢</div>
+            <div class="guide-step-text">可直接在首頁搜尋 2330、2317、2454、0050 等標的。</div>
           </div>
         </div>
 
