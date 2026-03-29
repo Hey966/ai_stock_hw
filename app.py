@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import math
 import os
-import time
+import socket
 import threading
-import traceback
-import fcntl
+import time
+from contextlib import contextmanager
 from io import StringIO
 from datetime import datetime
 from typing import Any
@@ -16,6 +16,7 @@ import requests
 import yfinance as yf
 from flask import Flask, jsonify, render_template_string, request
 from urllib3.exceptions import InsecureRequestWarning
+import fcntl
 
 from templates_data.daily_template import DAILY_TEMPLATE
 from templates_data.error_template import ERROR_TEMPLATE
@@ -55,13 +56,19 @@ MAX_SCAN_LIMIT = int(os.environ.get("MAX_SCAN_LIMIT", "300"))
 REQUEST_SLEEP_SECONDS = float(os.environ.get("SCAN_SLEEP_SECONDS", "0.12"))
 ISIN_FETCH_TIMEOUT_SECONDS = int(os.environ.get("ISIN_FETCH_TIMEOUT_SECONDS", "20"))
 
-AUTO_UPDATE_ENABLED = os.environ.get("AUTO_UPDATE_ENABLED", "1") == "1"
+AUTO_UPDATE_ENABLED = os.environ.get("AUTO_UPDATE_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
 AUTO_UPDATE_INTERVAL_SECONDS = int(os.environ.get("AUTO_UPDATE_INTERVAL_SECONDS", "3600"))
-AUTO_UPDATE_STATUS_PATH = os.path.join(CACHE_DIR, "auto_update_status.json")
-AUTO_UPDATE_LOCK_PATH = os.path.join(CACHE_DIR, ".auto_update.lock")
+AUTO_UPDATE_LOOP_SLEEP_SECONDS = int(os.environ.get("AUTO_UPDATE_LOOP_SLEEP_SECONDS", "30"))
+AUTO_UPDATE_STARTUP_DELAY_SECONDS = int(os.environ.get("AUTO_UPDATE_STARTUP_DELAY_SECONDS", "20"))
+AUTO_UPDATE_SCAN_LIMIT = int(os.environ.get("AUTO_UPDATE_SCAN_LIMIT", str(DEFAULT_SCAN_LIMIT)))
 
-_update_lock = threading.Lock()
-_auto_update_started = False
+AUTO_UPDATE_STATE_PATH = os.path.join(CACHE_DIR, "auto_update_state.json")
+AUTO_UPDATE_LEADER_LOCK_PATH = os.path.join(CACHE_DIR, "auto_update_leader.lock")
+AUTO_UPDATE_RUN_LOCK_PATH = os.path.join(CACHE_DIR, "auto_update_run.lock")
+
+_hourly_updater_started = False
+_hourly_updater_start_lock = threading.Lock()
+_auto_update_leader_fd = None
 
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -425,141 +432,270 @@ def generate_daily_selection() -> dict[str, Any]:
     return data
 
 
-def _default_auto_update_status() -> dict[str, Any]:
+def _now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _default_auto_update_state() -> dict[str, Any]:
     return {
         "enabled": AUTO_UPDATE_ENABLED,
         "interval_seconds": AUTO_UPDATE_INTERVAL_SECONDS,
-        "is_running": False,
+        "scan_limit": max(1, min(AUTO_UPDATE_SCAN_LIMIT, MAX_SCAN_LIMIT)),
+        "status": "idle",
         "leader_pid": None,
+        "leader_hostname": None,
+        "leader_acquired_at": None,
         "last_started_at": None,
+        "last_started_ts": 0,
+        "last_completed_at": None,
+        "last_completed_ts": 0,
         "last_success_at": None,
+        "last_success_ts": 0,
         "last_error": None,
+        "last_error_at": None,
         "last_trigger": None,
-        "last_duration_seconds": None,
+        "last_market_total_scanned": 0,
+        "last_buy_count": 0,
+        "last_hold_count": 0,
+        "last_sell_count": 0,
+        "last_watch_count": 0,
     }
 
 
-def load_auto_update_status() -> dict[str, Any]:
-    data = _default_auto_update_status()
-    if not os.path.exists(AUTO_UPDATE_STATUS_PATH):
+def load_auto_update_state() -> dict[str, Any]:
+    default_data = _default_auto_update_state()
+    if not os.path.exists(AUTO_UPDATE_STATE_PATH):
+        return default_data
+
+    try:
+        with open(AUTO_UPDATE_STATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return default_data
+        for key, value in default_data.items():
+            data.setdefault(key, value)
         return data
-
-    try:
-        with open(AUTO_UPDATE_STATUS_PATH, "r", encoding="utf-8") as f:
-            loaded = json.load(f)
-        if isinstance(loaded, dict):
-            data.update(loaded)
     except Exception:
-        pass
-    return data
+        return default_data
 
 
-def save_auto_update_status(status: dict[str, Any]) -> None:
-    merged = _default_auto_update_status()
-    merged.update(status)
-    with open(AUTO_UPDATE_STATUS_PATH, "w", encoding="utf-8") as f:
+def save_auto_update_state(state: dict[str, Any]) -> None:
+    merged = _default_auto_update_state()
+    merged.update(state)
+    tmp_path = AUTO_UPDATE_STATE_PATH + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, AUTO_UPDATE_STATE_PATH)
 
 
-def _acquire_auto_update_leader_lock() -> int | None:
-    fd = os.open(AUTO_UPDATE_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+def update_auto_update_state(**updates: Any) -> dict[str, Any]:
+    state = load_auto_update_state()
+    state.update(updates)
+    save_auto_update_state(state)
+    return state
+
+
+@contextmanager
+def _file_lock(path: str, blocking: bool = True):
+    fd = open(path, "a+", encoding="utf-8")
+    flags = fcntl.LOCK_EX
+    if not blocking:
+        flags |= fcntl.LOCK_NB
+
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return fd
-    except BlockingIOError:
-        os.close(fd)
-        return None
-
-
-def _refresh_all_data(limit: int | None = None, trigger: str = "manual") -> dict[str, Any]:
-    start_ts = time.time()
-    with _update_lock:
-        status = load_auto_update_status()
-        status.update(
-            {
-                "is_running": True,
-                "leader_pid": os.getpid(),
-                "last_started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "last_trigger": trigger,
-                "last_error": None,
-            }
-        )
-        save_auto_update_status(status)
-
+        fcntl.flock(fd.fileno(), flags)
+        yield fd
+    finally:
         try:
-            market_data = run_market_scan(limit=limit)
+            fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        fd.close()
+
+
+def try_acquire_auto_update_leader() -> bool:
+    global _auto_update_leader_fd
+
+    if _auto_update_leader_fd is not None and not _auto_update_leader_fd.closed:
+        return True
+
+    fd = open(AUTO_UPDATE_LEADER_LOCK_PATH, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fd.close()
+        return False
+
+    fd.seek(0)
+    fd.truncate()
+    fd.write(f"{os.getpid()}\n{socket.gethostname()}\n{_now_str()}\n")
+    fd.flush()
+
+    _auto_update_leader_fd = fd
+    update_auto_update_state(
+        enabled=AUTO_UPDATE_ENABLED,
+        interval_seconds=AUTO_UPDATE_INTERVAL_SECONDS,
+        scan_limit=max(1, min(AUTO_UPDATE_SCAN_LIMIT, MAX_SCAN_LIMIT)),
+        leader_pid=os.getpid(),
+        leader_hostname=socket.gethostname(),
+        leader_acquired_at=_now_str(),
+    )
+    return True
+
+
+def _mark_update_started(trigger: str, scan_limit: int) -> None:
+    update_auto_update_state(
+        enabled=AUTO_UPDATE_ENABLED,
+        interval_seconds=AUTO_UPDATE_INTERVAL_SECONDS,
+        scan_limit=scan_limit,
+        status="running",
+        last_trigger=trigger,
+        last_started_at=_now_str(),
+        last_started_ts=time.time(),
+        last_error=None,
+        last_error_at=None,
+    )
+
+
+def _mark_update_success(trigger: str, scan_limit: int, scan_data: dict[str, Any]) -> None:
+    now_str = _now_str()
+    now_ts = time.time()
+    update_auto_update_state(
+        enabled=AUTO_UPDATE_ENABLED,
+        interval_seconds=AUTO_UPDATE_INTERVAL_SECONDS,
+        scan_limit=scan_limit,
+        status="idle",
+        last_trigger=trigger,
+        last_completed_at=now_str,
+        last_completed_ts=now_ts,
+        last_success_at=now_str,
+        last_success_ts=now_ts,
+        last_error=None,
+        last_error_at=None,
+        last_market_total_scanned=int(scan_data.get("total_scanned", 0) or 0),
+        last_buy_count=int(scan_data.get("buy_count", 0) or 0),
+        last_hold_count=int(scan_data.get("hold_count", 0) or 0),
+        last_sell_count=int(scan_data.get("sell_count", 0) or 0),
+        last_watch_count=int(scan_data.get("watch_count", 0) or 0),
+    )
+
+
+def _mark_update_error(trigger: str, scan_limit: int, exc: Exception) -> None:
+    now_str = _now_str()
+    update_auto_update_state(
+        enabled=AUTO_UPDATE_ENABLED,
+        interval_seconds=AUTO_UPDATE_INTERVAL_SECONDS,
+        scan_limit=scan_limit,
+        status="error",
+        last_trigger=trigger,
+        last_completed_at=now_str,
+        last_completed_ts=time.time(),
+        last_error=str(exc),
+        last_error_at=now_str,
+    )
+
+
+def run_full_refresh(scan_limit: int | None = None, trigger: str = "manual") -> dict[str, Any]:
+    effective_limit = max(1, min(scan_limit or AUTO_UPDATE_SCAN_LIMIT or DEFAULT_SCAN_LIMIT, MAX_SCAN_LIMIT))
+
+    with _file_lock(AUTO_UPDATE_RUN_LOCK_PATH, blocking=True):
+        _mark_update_started(trigger=trigger, scan_limit=effective_limit)
+        try:
+            scan_data = run_market_scan(limit=effective_limit)
             daily_data = generate_daily_selection()
-            finished = load_auto_update_status()
-            finished.update(
-                {
-                    "is_running": False,
-                    "leader_pid": os.getpid(),
-                    "last_success_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "last_duration_seconds": round(time.time() - start_ts, 2),
-                    "last_error": None,
-                    "last_trigger": trigger,
-                }
-            )
-            save_auto_update_status(finished)
-            return {"market_scan": market_data, "daily_strategy": daily_data}
+            _mark_update_success(trigger=trigger, scan_limit=effective_limit, scan_data=scan_data)
+            return {
+                "market_scan": scan_data,
+                "daily_selection": daily_data,
+            }
         except Exception as exc:
-            failed = load_auto_update_status()
-            failed.update(
-                {
-                    "is_running": False,
-                    "leader_pid": os.getpid(),
-                    "last_duration_seconds": round(time.time() - start_ts, 2),
-                    "last_error": str(exc),
-                    "last_trigger": trigger,
-                }
-            )
-            save_auto_update_status(failed)
+            _mark_update_error(trigger=trigger, scan_limit=effective_limit, exc=exc)
             raise
 
 
-def _auto_update_worker() -> None:
-    leader_fd = _acquire_auto_update_leader_lock()
-    if leader_fd is None:
-        return
+def run_market_scan_tracked(limit: int | None = None, trigger: str = "manual-market-scan") -> dict[str, Any]:
+    effective_limit = max(1, min(limit or DEFAULT_SCAN_LIMIT, MAX_SCAN_LIMIT))
 
-    status = load_auto_update_status()
-    status.update({"leader_pid": os.getpid(), "enabled": AUTO_UPDATE_ENABLED})
-    save_auto_update_status(status)
+    with _file_lock(AUTO_UPDATE_RUN_LOCK_PATH, blocking=True):
+        _mark_update_started(trigger=trigger, scan_limit=effective_limit)
+        try:
+            scan_data = run_market_scan(limit=effective_limit)
+            _mark_update_success(trigger=trigger, scan_limit=effective_limit, scan_data=scan_data)
+            return scan_data
+        except Exception as exc:
+            _mark_update_error(trigger=trigger, scan_limit=effective_limit, exc=exc)
+            raise
+
+
+def should_run_auto_update() -> bool:
+    if not AUTO_UPDATE_ENABLED:
+        return False
+
+    state = load_auto_update_state()
+    last_success_ts = float(state.get("last_success_ts", 0) or 0)
+    if last_success_ts <= 0:
+        return True
+
+    return (time.time() - last_success_ts) >= AUTO_UPDATE_INTERVAL_SECONDS
+
+
+def _attempt_auto_refresh() -> bool:
+    if not should_run_auto_update():
+        return False
 
     try:
-        if not os.path.exists(MARKET_SCAN_PATH) or not os.path.exists(DAILY_SELECTION_PATH):
+        with _file_lock(AUTO_UPDATE_RUN_LOCK_PATH, blocking=False):
+            scan_limit = max(1, min(AUTO_UPDATE_SCAN_LIMIT, MAX_SCAN_LIMIT))
+            _mark_update_started(trigger="auto-hourly", scan_limit=scan_limit)
             try:
-                _refresh_all_data(limit=DEFAULT_SCAN_LIMIT, trigger="startup")
-            except Exception:
-                failed = load_auto_update_status()
-                failed["last_error"] = traceback.format_exc(limit=1).strip()
-                save_auto_update_status(failed)
+                scan_data = run_market_scan(limit=scan_limit)
+                generate_daily_selection()
+                _mark_update_success(trigger="auto-hourly", scan_limit=scan_limit, scan_data=scan_data)
+                return True
+            except Exception as exc:
+                _mark_update_error(trigger="auto-hourly", scan_limit=scan_limit, exc=exc)
+                return False
+    except BlockingIOError:
+        return False
 
-        while True:
-            time.sleep(AUTO_UPDATE_INTERVAL_SECONDS)
-            try:
-                _refresh_all_data(limit=DEFAULT_SCAN_LIMIT, trigger="hourly")
-            except Exception:
-                failed = load_auto_update_status()
-                failed["last_error"] = traceback.format_exc(limit=1).strip()
-                save_auto_update_status(failed)
-    finally:
+
+def auto_update_loop() -> None:
+    if AUTO_UPDATE_STARTUP_DELAY_SECONDS > 0:
+        time.sleep(AUTO_UPDATE_STARTUP_DELAY_SECONDS)
+
+    while True:
         try:
-            fcntl.flock(leader_fd, fcntl.LOCK_UN)
-            os.close(leader_fd)
+            if try_acquire_auto_update_leader():
+                _attempt_auto_refresh()
         except Exception:
             pass
+        time.sleep(max(5, AUTO_UPDATE_LOOP_SLEEP_SECONDS))
 
 
-def start_auto_update_daemon() -> None:
-    global _auto_update_started
+def start_hourly_updater() -> None:
+    global _hourly_updater_started
 
-    if _auto_update_started or not AUTO_UPDATE_ENABLED:
+    if not AUTO_UPDATE_ENABLED:
+        update_auto_update_state(
+            enabled=AUTO_UPDATE_ENABLED,
+            interval_seconds=AUTO_UPDATE_INTERVAL_SECONDS,
+            scan_limit=max(1, min(AUTO_UPDATE_SCAN_LIMIT, MAX_SCAN_LIMIT)),
+        )
         return
 
-    _auto_update_started = True
-    thread = threading.Thread(target=_auto_update_worker, name="auto-update-daemon", daemon=True)
-    thread.start()
+    with _hourly_updater_start_lock:
+        if _hourly_updater_started:
+            return
+
+        thread = threading.Thread(
+            target=auto_update_loop,
+            name="hourly-stock-updater",
+            daemon=True,
+        )
+        thread.start()
+        _hourly_updater_started = True
+
+
 
 
 @app.route("/healthz")
@@ -732,8 +868,8 @@ def api_market_scan():
 def api_market_scan_run():
     try:
         limit = request.args.get("limit", type=int)
-        data = _refresh_all_data(limit=limit, trigger="manual_market_scan")
-        return jsonify({"status": "ok", "data": data["market_scan"]})
+        data = run_market_scan_tracked(limit=limit, trigger="manual-market-scan")
+        return jsonify({"status": "ok", "data": data})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -750,11 +886,31 @@ def api_daily_strategy():
 def api_daily_strategy_run():
     try:
         limit = request.args.get("limit", type=int)
-        if request.args.get("scan_first", "1") == "1":
-            data = _refresh_all_data(limit=limit, trigger="manual_daily_strategy")
-            return jsonify({"status": "ok", "data": data["daily_strategy"]})
-        with _update_lock:
-            data = generate_daily_selection()
+        scan_first = request.args.get("scan_first", "1") == "1"
+
+        if scan_first:
+            result = run_full_refresh(scan_limit=limit, trigger="manual-daily-strategy")
+            data = result["daily_selection"]
+        else:
+            with _file_lock(AUTO_UPDATE_RUN_LOCK_PATH, blocking=True):
+                effective_limit = max(1, min(limit or DEFAULT_SCAN_LIMIT, MAX_SCAN_LIMIT))
+                _mark_update_started(trigger="manual-daily-strategy", scan_limit=effective_limit)
+                try:
+                    data = generate_daily_selection()
+                    scan_data = load_market_scan_cache()
+                    _mark_update_success(
+                        trigger="manual-daily-strategy",
+                        scan_limit=effective_limit,
+                        scan_data=scan_data,
+                    )
+                except Exception as exc:
+                    _mark_update_error(
+                        trigger="manual-daily-strategy",
+                        scan_limit=effective_limit,
+                        exc=exc,
+                    )
+                    raise
+
         return jsonify({"status": "ok", "data": data})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -772,12 +928,20 @@ def api_tw_universe():
 @app.route("/api/auto-update-status")
 def api_auto_update_status():
     try:
-        status = load_auto_update_status()
-        status["market_cache_exists"] = os.path.exists(MARKET_SCAN_PATH)
-        status["daily_cache_exists"] = os.path.exists(DAILY_SELECTION_PATH)
-        return jsonify(status)
+        state = load_auto_update_state()
+        state.update(
+            {
+                "this_pid": os.getpid(),
+                "this_hostname": socket.gethostname(),
+                "this_process_is_leader": bool(
+                    _auto_update_leader_fd is not None and not _auto_update_leader_fd.closed
+                ),
+            }
+        )
+        return jsonify(state)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 
 @app.route("/tools", methods=["GET", "POST"])
@@ -820,7 +984,7 @@ def tools():
         )
 
 
-start_auto_update_daemon()
+start_hourly_updater()
 
 
 if __name__ == "__main__":
