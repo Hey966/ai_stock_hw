@@ -18,9 +18,9 @@ MARKET_TEMPLATE = """
     </div>
 
     <section class="market-hero">
-      <div class="market-hero-badge">MARKET SCAN</div>
-      <h1>📡 市場掃描儀表板</h1>
-      <div class="subtitle">查看全市場分類結果與最新更新時間</div>
+      <div class="market-hero-badge">市場掃描</div>
+      <h1>用分類方式掌握目前市場狀態</h1>
+      <div class="subtitle">從買入、持有、賣出與觀察區塊快速瀏覽全市場結果，先看全貌，再決定下一步。</div>
     </section>
 
     <section class="card market-summary-card">
@@ -83,7 +83,7 @@ MARKET_TEMPLATE = """
     <section class="card market-section market-section-buy">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">2</span>買入區</h2>
-        <div class="market-section-tag buy-tag">偏強勢 / 可優先關注</div>
+        <div class="market-section-tag buy-tag">優先關注</div>
       </div>
 
       <div class="stock-list" id="market-buy">
@@ -129,7 +129,7 @@ MARKET_TEMPLATE = """
     <section class="card market-section market-section-hold">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">3</span>持有區</h2>
-        <div class="market-section-tag hold-tag">中性區 / 持續觀察</div>
+        <div class="market-section-tag hold-tag">持續觀察</div>
       </div>
 
       <div class="stock-list" id="market-hold">
@@ -175,7 +175,7 @@ MARKET_TEMPLATE = """
     <section class="card market-section market-section-sell">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">4</span>賣出區</h2>
-        <div class="market-section-tag sell-tag">偏弱勢 / 提高警覺</div>
+        <div class="market-section-tag sell-tag">提高警覺</div>
       </div>
 
       <div class="stock-list" id="market-sell">
@@ -221,7 +221,7 @@ MARKET_TEMPLATE = """
     <section class="card market-section market-section-suitable">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">5</span>觀察區</h2>
-        <div class="market-section-tag suitable-tag">可追蹤 / 等待更佳時機</div>
+        <div class="market-section-tag suitable-tag">等待更佳時機</div>
       </div>
 
       <div class="stock-list" id="market-watch">

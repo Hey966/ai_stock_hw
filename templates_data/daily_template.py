@@ -18,9 +18,9 @@ DAILY_TEMPLATE = """
     </div>
 
     <section class="daily-hero">
-      <div class="daily-badge">DAILY STRATEGY</div>
-      <h1>📅 今日策略儀表板</h1>
-      <div class="subtitle">快速掌握今日市場重點與操作方向</div>
+      <div class="daily-badge">今日策略</div>
+      <h1>把每日重點整理成可直接瀏覽的名單</h1>
+      <div class="subtitle">集中查看 Top Buy、觀察名單與風險名單，快速掌握今天最值得留意的方向。</div>
     </section>
 
     <section class="card">
@@ -69,7 +69,7 @@ DAILY_TEMPLATE = """
     <section class="card market-section market-section-buy">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">2</span>Top Buy</h2>
-        <div class="market-section-tag buy-tag">🔥 今日重點</div>
+        <div class="market-section-tag buy-tag">今日優先關注</div>
       </div>
 
       <div class="stock-list">
@@ -115,7 +115,7 @@ DAILY_TEMPLATE = """
     <section class="card market-section market-section-hold">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">3</span>今日觀察</h2>
-        <div class="market-section-tag hold-tag">👀 觀察中</div>
+        <div class="market-section-tag hold-tag">持續追蹤</div>
       </div>
 
       <div class="stock-list">
@@ -161,7 +161,7 @@ DAILY_TEMPLATE = """
     <section class="card market-section market-section-sell">
       <div class="market-section-head">
         <h2 class="section-title"><span class="section-num">4</span>風險名單</h2>
-        <div class="market-section-tag sell-tag">⚠️ 注意風險</div>
+        <div class="market-section-tag sell-tag">注意風險</div>
       </div>
 
       <div class="stock-list">
