@@ -729,6 +729,8 @@ def home():
 @requires_auth
 def stock_page():
     symbol = (request.args.get("symbol") or "").strip()
+    refresh_raw = (request.args.get("refresh") or "1").strip().lower()
+    force_refresh = refresh_raw not in {"0", "false", "no", "off"}
 
     if not symbol:
         return render_template_string(
@@ -777,7 +779,7 @@ def stock_page():
         )
 
     try:
-        report = build_structured_report(symbol)
+        report = build_structured_report(symbol, force_refresh=force_refresh)
         valuation = report.get("valuation", {})
 
         return render_template_string(

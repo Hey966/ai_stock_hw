@@ -30,7 +30,10 @@ def _now_ts():
     return time.time()
 
 
-def _cache_get(key):
+def _cache_get(key, force_refresh: bool = False):
+    if force_refresh:
+        return None
+
     data = NEWS_CACHE.get(key)
     if not data:
         return None
@@ -261,9 +264,9 @@ def _calc_news_result(symbol: str, company_name: str, industry: str, items):
     }
 
 
-def analyze_stock_news(symbol: str, company_name: str = "", industry: str = ""):
+def analyze_stock_news(symbol: str, company_name: str = "", industry: str = "", force_refresh: bool = False):
     cache_key = f"{symbol}|{company_name}|{industry}"
-    cached = _cache_get(cache_key)
+    cached = _cache_get(cache_key, force_refresh=force_refresh)
     if cached is not None:
         return cached
 

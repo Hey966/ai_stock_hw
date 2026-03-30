@@ -27,7 +27,10 @@ def cache_path(key: str) -> str:
     return os.path.join(CACHE_DIR, f"{safe_key}.json")
 
 
-def load_cache(key: str):
+def load_cache(key: str, force_refresh: bool = False):
+    if force_refresh:
+        return None
+
     path = cache_path(key)
     if not os.path.exists(path):
         return None
@@ -54,12 +57,12 @@ def get_headers():
     return {"Authorization": f"Bearer {token}"}
 
 
-def finmind_get(dataset: str, **params):
+def finmind_get(dataset: str, force_refresh: bool = False, **params):
     query = {"dataset": dataset}
     query.update(params)
 
     cache_key = dataset + "_" + "_".join(f"{k}={v}" for k, v in sorted(query.items()))
-    cached = load_cache(cache_key)
+    cached = load_cache(cache_key, force_refresh=force_refresh)
     if cached is not None:
         return cached
 
@@ -120,32 +123,32 @@ def format_money(v):
     return f"{v:,.0f}"
 
 
-def get_stock_info(symbol: str):
-    rows = finmind_get("TaiwanStockInfo")
+def get_stock_info(symbol: str, force_refresh: bool = False):
+    rows = finmind_get("TaiwanStockInfo", force_refresh=force_refresh)
     for row in rows:
         if str(row.get("stock_id", "")).strip() == symbol:
             return row
     raise Exception("找不到該股票代號，請確認是否為台股代號。")
 
 
-def get_price_data(symbol: str):
-    return finmind_get("TaiwanStockPrice", data_id=symbol, start_date="2024-01-01")
+def get_price_data(symbol: str, force_refresh: bool = False):
+    return finmind_get("TaiwanStockPrice", data_id=symbol, start_date="2024-01-01", force_refresh=force_refresh)
 
 
-def get_per_data(symbol: str):
-    return finmind_get("TaiwanStockPER", data_id=symbol, start_date="2024-01-01")
+def get_per_data(symbol: str, force_refresh: bool = False):
+    return finmind_get("TaiwanStockPER", data_id=symbol, start_date="2024-01-01", force_refresh=force_refresh)
 
 
-def get_financial_statements(symbol: str):
-    return finmind_get("TaiwanStockFinancialStatements", data_id=symbol, start_date="2021-01-01")
+def get_financial_statements(symbol: str, force_refresh: bool = False):
+    return finmind_get("TaiwanStockFinancialStatements", data_id=symbol, start_date="2021-01-01", force_refresh=force_refresh)
 
 
-def get_balance_sheet(symbol: str):
-    return finmind_get("TaiwanStockBalanceSheet", data_id=symbol, start_date="2021-01-01")
+def get_balance_sheet(symbol: str, force_refresh: bool = False):
+    return finmind_get("TaiwanStockBalanceSheet", data_id=symbol, start_date="2021-01-01", force_refresh=force_refresh)
 
 
-def get_month_revenue(symbol: str):
-    return finmind_get("TaiwanStockMonthRevenue", data_id=symbol, start_date="2021-01-01")
+def get_month_revenue(symbol: str, force_refresh: bool = False):
+    return finmind_get("TaiwanStockMonthRevenue", data_id=symbol, start_date="2021-01-01", force_refresh=force_refresh)
 
 
 def latest_row(rows, key="date"):
@@ -479,11 +482,11 @@ def valuation_judgment(per):
     }
 
 
-def build_structured_report(symbol: str):
+def build_structured_report(symbol: str, force_refresh: bool = False):
     symbol = symbol.strip()
 
     try:
-        info = get_stock_info(symbol)
+        info = get_stock_info(symbol, force_refresh=force_refresh)
     except Exception:
         info = {
             "stock_name": symbol,
@@ -492,27 +495,27 @@ def build_structured_report(symbol: str):
         }
 
     try:
-        price_rows = get_price_data(symbol)
+        price_rows = get_price_data(symbol, force_refresh=force_refresh)
     except Exception:
         price_rows = []
 
     try:
-        per_rows = get_per_data(symbol)
+        per_rows = get_per_data(symbol, force_refresh=force_refresh)
     except Exception:
         per_rows = []
 
     try:
-        fin_rows = get_financial_statements(symbol)
+        fin_rows = get_financial_statements(symbol, force_refresh=force_refresh)
     except Exception:
         fin_rows = []
 
     try:
-        balance_rows = get_balance_sheet(symbol)
+        balance_rows = get_balance_sheet(symbol, force_refresh=force_refresh)
     except Exception:
         balance_rows = []
 
     try:
-        revenue_rows = get_month_revenue(symbol)
+        revenue_rows = get_month_revenue(symbol, force_refresh=force_refresh)
     except Exception:
         revenue_rows = []
 
@@ -528,6 +531,7 @@ def build_structured_report(symbol: str):
             symbol=symbol,
             company_name=overview["company_name"],
             industry=overview["industry_category"],
+            force_refresh=force_refresh,
         )
     except Exception:
         news_analysis = {
