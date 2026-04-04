@@ -20,19 +20,25 @@ STOCK_TEMPLATE = """
     <section class="stock-hero">
       <div class="stock-hero-badge">STOCK ANALYSIS</div>
       <h1>📘 個股詳細分析</h1>
-      <div class="subtitle">基本面、估值、價格歷程與新聞分析整合</div>
+      <div class="subtitle">輸入股票代號後可快速分析，並以最新股價與最新可用報價時間做判斷</div>
 
       <div class="search-box">
-        <form method="get" action="/stock">
+        <form method="get" action="/stock" id="stockSearchForm">
+          <input type="hidden" name="refresh" value="1">
           <div class="search-row">
             <input
               type="text"
+              id="stockSymbolInput"
               name="symbol"
               value="{{ symbol }}"
               placeholder="輸入股票代號，例如 2330"
+              autocomplete="off"
               required
             >
             <button type="submit">查詢個股</button>
+          </div>
+          <div class="hint" id="stockSearchHint" style="margin-top:10px;">
+            輸入 4 碼代號後會自動開始分析，也可直接按下查詢個股。
           </div>
         </form>
       </div>
@@ -53,7 +59,7 @@ STOCK_TEMPLATE = """
           <div class="stock-kpi-value">{{ report.latest_price }}</div>
         </div>
         <div class="stock-kpi stock-kpi-indigo">
-          <div class="stock-kpi-label">價格日期</div>
+          <div class="stock-kpi-label">最新報價時間 / 日期</div>
           <div class="stock-kpi-value">{{ report.latest_price_date }}</div>
         </div>
         <div class="stock-kpi stock-kpi-purple">
@@ -297,6 +303,45 @@ STOCK_TEMPLATE = """
 
     <div class="footer">AI Stock Dashboard</div>
   </div>
+
+  <script>
+    (function () {
+      const form = document.getElementById("stockSearchForm");
+      const input = document.getElementById("stockSymbolInput");
+      const hint = document.getElementById("stockSearchHint");
+      if (!form || !input) return;
+
+      let timer = null;
+
+      function normalized(value) {
+        return (value || "").trim().toUpperCase();
+      }
+
+      function shouldAutoSubmit(value) {
+        return /^[0-9A-Z]{4,6}$/.test(value);
+      }
+
+      input.addEventListener("input", function () {
+        const value = normalized(input.value);
+        if (timer) {
+          clearTimeout(timer);
+        }
+
+        if (!shouldAutoSubmit(value)) {
+          hint.textContent = "請輸入 4 碼股票代號，例如 2330、2317、2454。";
+          return;
+        }
+
+        hint.textContent = "代號已辨識，正在準備分析…";
+        timer = setTimeout(function () {
+          if (normalized(input.value) !== value) return;
+          hint.textContent = "正在分析，請稍候…";
+          form.submit();
+        }, 450);
+      });
+    })();
+  </script>
+
   {{ live_script|safe }}
 </body>
 </html>

@@ -1,10 +1,11 @@
 import os
 import json
 import time
-from datetime import datetime
 import requests
-import yfinance as yf
 from collections import defaultdict
+from datetime import datetime
+
+import yfinance as yf
 
 from core.price_analysis import analyze_price_structure
 
@@ -29,10 +30,7 @@ def cache_path(key: str) -> str:
     return os.path.join(CACHE_DIR, f"{safe_key}.json")
 
 
-def load_cache(key: str, force_refresh: bool = False):
-    if force_refresh:
-        return None
-
+def load_cache(key: str):
     path = cache_path(key)
     if not os.path.exists(path):
         return None
@@ -54,6 +52,15 @@ def save_cache(key: str, data):
         json.dump({"ts": time.time(), "data": data}, f, ensure_ascii=False)
 
 
+def delete_cache(key: str):
+    path = cache_path(key)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
+
 def get_headers():
     token = get_finmind_token()
     return {"Authorization": f"Bearer {token}"}
@@ -64,7 +71,10 @@ def finmind_get(dataset: str, force_refresh: bool = False, **params):
     query.update(params)
 
     cache_key = dataset + "_" + "_".join(f"{k}={v}" for k, v in sorted(query.items()))
-    cached = load_cache(cache_key, force_refresh=force_refresh)
+    if force_refresh:
+        delete_cache(cache_key)
+
+    cached = load_cache(cache_key)
     if cached is not None:
         return cached
 
@@ -125,105 +135,6 @@ def format_money(v):
     return f"{v:,.0f}"
 
 
-def _normalize_datetime(value):
-    if value is None or value == "":
-        return None
-
-    if isinstance(value, datetime):
-        return value
-
-    try:
-        if hasattr(value, "to_pydatetime"):
-            return value.to_pydatetime()
-    except Exception:
-        pass
-
-    if isinstance(value, (int, float)):
-        try:
-            ts = float(value)
-            if ts > 1_000_000_000_000:
-                ts = ts / 1000.0
-            return datetime.fromtimestamp(ts)
-        except Exception:
-            return None
-
-    text = str(value).strip()
-    if not text:
-        return None
-
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text[:19], fmt)
-        except Exception:
-            continue
-    return None
-
-
-def _format_quote_datetime(value):
-    dt = _normalize_datetime(value)
-    if dt is None:
-        return None
-    if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
-        return dt.strftime("%Y-%m-%d")
-    return dt.strftime("%Y-%m-%d %H:%M")
-
-
-def get_live_quote(symbol: str):
-    for suffix in (".TW", ".TWO"):
-        ticker = f"{symbol}{suffix}"
-        try:
-            yf_ticker = yf.Ticker(ticker)
-
-            price = None
-            quote_dt = None
-            source = None
-
-            try:
-                fast_info = yf_ticker.fast_info or {}
-            except Exception:
-                fast_info = {}
-
-            if isinstance(fast_info, dict):
-                raw_price = (
-                    fast_info.get("lastPrice")
-                    or fast_info.get("last_price")
-                    or fast_info.get("regularMarketPrice")
-                    or fast_info.get("currentPrice")
-                )
-                price = safe_float(raw_price, None)
-                quote_dt = _normalize_datetime(
-                    fast_info.get("lastPriceTime") or fast_info.get("regularMarketTime")
-                )
-                if price not in (None, 0):
-                    source = "yfinance_fast_info"
-
-            if price in (None, 0):
-                hist = yf_ticker.history(period="5d", interval="1d", auto_adjust=False)
-                if hist is not None and not hist.empty:
-                    closes = hist["Close"].dropna()
-                    if not closes.empty:
-                        price = safe_float(closes.iloc[-1], None)
-                        quote_dt = _normalize_datetime(closes.index[-1])
-                        source = source or "yfinance_history"
-
-            if price not in (None, 0):
-                return {
-                    "ticker": ticker,
-                    "price": round(float(price), 2),
-                    "date": _format_quote_datetime(quote_dt),
-                    "source": source or "yfinance",
-                }
-        except Exception:
-            continue
-
-    return {
-        "ticker": None,
-        "price": None,
-        "date": None,
-        "source": "finmind",
-    }
-
-
 def get_stock_info(symbol: str, force_refresh: bool = False):
     rows = finmind_get("TaiwanStockInfo", force_refresh=force_refresh)
     for row in rows:
@@ -233,23 +144,23 @@ def get_stock_info(symbol: str, force_refresh: bool = False):
 
 
 def get_price_data(symbol: str, force_refresh: bool = False):
-    return finmind_get("TaiwanStockPrice", force_refresh=force_refresh, data_id=symbol, start_date="2024-01-01")
+    return finmind_get("TaiwanStockPrice", data_id=symbol, start_date="2024-01-01", force_refresh=force_refresh)
 
 
 def get_per_data(symbol: str, force_refresh: bool = False):
-    return finmind_get("TaiwanStockPER", force_refresh=force_refresh, data_id=symbol, start_date="2024-01-01")
+    return finmind_get("TaiwanStockPER", data_id=symbol, start_date="2024-01-01", force_refresh=force_refresh)
 
 
 def get_financial_statements(symbol: str, force_refresh: bool = False):
-    return finmind_get("TaiwanStockFinancialStatements", force_refresh=force_refresh, data_id=symbol, start_date="2021-01-01")
+    return finmind_get("TaiwanStockFinancialStatements", data_id=symbol, start_date="2021-01-01", force_refresh=force_refresh)
 
 
 def get_balance_sheet(symbol: str, force_refresh: bool = False):
-    return finmind_get("TaiwanStockBalanceSheet", force_refresh=force_refresh, data_id=symbol, start_date="2021-01-01")
+    return finmind_get("TaiwanStockBalanceSheet", data_id=symbol, start_date="2021-01-01", force_refresh=force_refresh)
 
 
 def get_month_revenue(symbol: str, force_refresh: bool = False):
-    return finmind_get("TaiwanStockMonthRevenue", force_refresh=force_refresh, data_id=symbol, start_date="2021-01-01")
+    return finmind_get("TaiwanStockMonthRevenue", data_id=symbol, start_date="2021-01-01", force_refresh=force_refresh)
 
 
 def latest_row(rows, key="date"):
@@ -299,15 +210,96 @@ def calc_annual_revenue_from_monthly(rows):
     return result
 
 
-def calc_latest_price_metrics(price_rows, per_rows):
+def _format_quote_datetime(dt_value):
+    if dt_value is None:
+        return None
+    try:
+        if hasattr(dt_value, "tz_localize") and dt_value.tzinfo is None:
+            dt_value = dt_value.tz_localize("Asia/Taipei")
+    except Exception:
+        pass
+    try:
+        if hasattr(dt_value, "tz_convert"):
+            dt_value = dt_value.tz_convert("Asia/Taipei")
+    except Exception:
+        pass
+    try:
+        return dt_value.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return str(dt_value)
+
+
+def resolve_yfinance_tickers(symbol: str, info: dict):
+    market_text = str(info.get("type", "") or "")
+    candidates = []
+
+    if "上櫃" in market_text or "興櫃" in market_text or "OTC" in market_text.upper():
+        candidates.extend([f"{symbol}.TWO", f"{symbol}.TW"])
+    else:
+        candidates.extend([f"{symbol}.TW", f"{symbol}.TWO"])
+
+    seen = set()
+    ordered = []
+    for item in candidates:
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
+
+
+def get_live_quote(symbol: str, info: dict):
+    tickers = resolve_yfinance_tickers(symbol, info)
+
+    for ticker in tickers:
+        try:
+            yf_ticker = yf.Ticker(ticker)
+
+            intraday = yf_ticker.history(period="1d", interval="1m", auto_adjust=False)
+            if intraday is not None and not intraday.empty:
+                latest_idx = intraday.index[-1]
+                latest_price = safe_float(intraday["Close"].iloc[-1])
+                if latest_price is not None:
+                    return {
+                        "ticker": ticker,
+                        "price": round(latest_price, 2),
+                        "date": _format_quote_datetime(latest_idx),
+                        "source": "yfinance_intraday",
+                    }
+
+            daily = yf_ticker.history(period="5d", interval="1d", auto_adjust=False)
+            if daily is not None and not daily.empty:
+                latest_idx = daily.index[-1]
+                latest_price = safe_float(daily["Close"].iloc[-1])
+                if latest_price is not None:
+                    return {
+                        "ticker": ticker,
+                        "price": round(latest_price, 2),
+                        "date": latest_idx.strftime("%Y-%m-%d"),
+                        "source": "yfinance_daily",
+                    }
+        except Exception:
+            continue
+
+    return None
+
+
+def calc_latest_price_metrics(price_rows, per_rows, live_quote=None):
     if not price_rows:
-        return {"close": 0, "spread": 0, "price_date": None, "per": None, "pbr": None}
+        return {
+            "close": safe_float((live_quote or {}).get("price"), 0) or 0,
+            "spread": 0,
+            "price_date": (live_quote or {}).get("date"),
+            "per": None,
+            "pbr": None,
+            "quote_source": (live_quote or {}).get("source", "unknown"),
+        }
 
     latest_price = latest_row(price_rows, "date")
     latest_per = latest_row(per_rows, "date") if per_rows else None
 
     close = safe_float(latest_price.get("close"), 0)
     spread = safe_float(latest_price.get("spread"), 0)
+    price_date = latest_price.get("date")
 
     if latest_per:
         per = safe_float(latest_per.get("PER"))
@@ -316,12 +308,17 @@ def calc_latest_price_metrics(price_rows, per_rows):
         per = None
         pbr = None
 
+    if live_quote and safe_float(live_quote.get("price")) is not None:
+        close = round(safe_float(live_quote.get("price"), close), 2)
+        price_date = live_quote.get("date") or price_date
+
     return {
         "close": close,
         "spread": spread,
-        "price_date": latest_price.get("date"),
+        "price_date": price_date,
         "per": per,
         "pbr": pbr,
+        "quote_source": (live_quote or {}).get("source", "finmind"),
     }
 
 
@@ -465,7 +462,7 @@ def overview_from_info(info):
         "company_name": stock_name,
         "industry_category": industry,
         "main_products_services": f"{stock_name} 屬於 {industry} 類股，詳細產品結構建議再補公司年報或公開說明書。",
-        "market_position": f"目前市場別：{market}。市場地位可再搭配市值、毛利率與ROE綜合觀察。"
+        "market_position": f"目前市場別：{market}。市場地位可再搭配市值、毛利率與 ROE 綜合觀察。"
     }
 
 
@@ -583,45 +580,32 @@ def valuation_judgment(per):
     }
 
 
-def build_latest_price_judgment(latest_price, latest_price_date, ma20, fair_value, base_suggestion, base_reason):
+def judge_latest_price_action(latest_price, fair_value, ma20, base_signal="持有"):
     price = safe_float(latest_price)
-    ma20 = safe_float(ma20)
-    fair_value = safe_float(fair_value)
+    fv = safe_float(fair_value)
+    ma = safe_float(ma20)
 
-    suggestion = base_suggestion or "持有"
-    signal_reason = "沿用原本評估結論。"
+    if price in (None, 0):
+        return base_signal, "缺少最新股價資料，先沿用基本面判斷。"
 
-    if price not in (None, 0):
-        if fair_value > 0 and price <= fair_value * 0.95 and (ma20 == 0 or price >= ma20 * 0.97):
-            suggestion = "買入"
-            signal_reason = f"最新股價 {price:.2f} 低於合理價 {fair_value:.2f}，且價格未明顯弱於 MA20。"
-        elif fair_value > 0 and price >= fair_value * 1.08 and ma20 > 0 and price < ma20:
-            suggestion = "賣出"
-            signal_reason = f"最新股價 {price:.2f} 高於合理價 {fair_value:.2f}，且已跌破 MA20 {ma20:.2f}。"
-        elif ma20 > 0 and price >= ma20:
-            suggestion = "持有"
-            signal_reason = f"最新股價 {price:.2f} 位於 MA20 {ma20:.2f} 之上，短線趨勢仍偏穩。"
-        elif ma20 > 0 and price < ma20 and fair_value > 0 and price > fair_value * 1.02:
-            suggestion = "賣出"
-            signal_reason = f"最新股價 {price:.2f} 跌破 MA20 {ma20:.2f}，且價格未明顯便宜。"
-        elif fair_value > 0 and price < fair_value:
-            suggestion = "持有"
-            signal_reason = f"最新股價 {price:.2f} 低於合理價 {fair_value:.2f}，但仍需觀察趨勢確認。"
-        else:
-            suggestion = base_suggestion or "持有"
-            signal_reason = f"最新股價 {price:.2f} 與合理價、均線關係接近中性。"
+    undervalued = fv not in (None, 0) and price <= fv * 0.95
+    overvalued = fv not in (None, 0) and price >= fv * 1.10
+    above_ma = ma not in (None, 0) and price >= ma
+    below_ma = ma not in (None, 0) and price < ma
 
-    date_text = f"價格日期：{latest_price_date}。" if latest_price_date else ""
-    reason_parts = [date_text, f"最新股價判斷：{signal_reason}"]
-    if base_reason:
-        reason_parts.append(f"基本面 / 估值補充：{base_reason}")
-    full_reason = " ".join(part.strip() for part in reason_parts if part and part.strip())
-
-    return {
-        "suggestion": suggestion,
-        "signal_reason": signal_reason,
-        "reason": full_reason,
-    }
+    if undervalued and (ma in (None, 0) or above_ma):
+        return "買入", "最新股價低於合理價，且價格不弱於 MA20。"
+    if overvalued and below_ma:
+        return "賣出", "最新股價高於合理價，且價格已跌破 MA20。"
+    if undervalued and below_ma:
+        return "持有", "最新股價低於合理價，但仍在 MA20 下方，建議等待趨勢確認。"
+    if overvalued and above_ma:
+        return "持有", "最新股價高於合理價，但仍在 MA20 上方，先續抱觀察。"
+    if above_ma:
+        return "持有", "最新股價位於 MA20 之上，短線趨勢仍可觀察。"
+    if below_ma:
+        return "賣出", "最新股價跌破 MA20，短線轉弱。"
+    return base_signal, "最新股價與合理價接近，先以中性判斷。"
 
 
 def build_structured_report(symbol: str, force_refresh: bool = False):
@@ -666,8 +650,8 @@ def build_structured_report(symbol: str, force_refresh: bool = False):
 
     overview = overview_from_info(info)
     rev3y = calc_annual_revenue_from_monthly(revenue_rows)
-    latest_price = calc_latest_price_metrics(price_rows, per_rows)
-    live_quote = get_live_quote(symbol)
+    live_quote = get_live_quote(symbol, info)
+    latest_price = calc_latest_price_metrics(price_rows, per_rows, live_quote=live_quote)
 
     try:
         news_analysis = analyze_stock_news(
@@ -700,16 +684,15 @@ def build_structured_report(symbol: str, force_refresh: bool = False):
     moat = moat_analysis(info, gross_margin, roe)
     risk = risk_analysis(info, debt_ratio, roe, latest_price["per"])
 
-    reference_price = live_quote.get("price") or latest_price["close"]
     fair_value, fair_pe_range = estimate_fair_value(
-        latest_price=reference_price,
+        latest_price=latest_price["close"],
         trailing_pe=latest_price["per"],
         industry_category=overview["industry_category"],
     )
 
     try:
         score_report = build_score_report(
-            latest_price=reference_price,
+            latest_price=latest_price["close"],
             fair_value=fair_value,
             trailing_pe=latest_price["per"],
             industry_category=overview["industry_category"],
@@ -726,7 +709,7 @@ def build_structured_report(symbol: str, force_refresh: bool = False):
             "quality_score": 0,
             "growth_score": 0,
             "technical_score": 0,
-            "investment_suggestion": "適合",
+            "investment_suggestion": "持有",
             "reason": "評分資料不足，先以保守模式顯示。"
         }
 
@@ -743,28 +726,24 @@ def build_structured_report(symbol: str, force_refresh: bool = False):
     blended_total_score = min(100, round(base_total_score * 0.8 + news_score * 1.0))
 
     old_valuation = valuation_judgment(latest_price["per"])
-
-    displayed_latest_price = live_quote.get("price")
-    if displayed_latest_price in (None, 0):
-        displayed_latest_price = latest_price["close"] if latest_price["close"] is not None else 0
-
-    displayed_latest_price_date = live_quote.get("date") or latest_price["price_date"] or "N/A"
-
-    latest_price_judgment = build_latest_price_judgment(
-        latest_price=displayed_latest_price,
-        latest_price_date=displayed_latest_price_date,
-        ma20=ma20,
+    latest_signal, latest_reason = judge_latest_price_action(
+        latest_price=latest_price["close"],
         fair_value=fair_value,
-        base_suggestion=score_report.get("investment_suggestion") or old_valuation["investment_suggestion"],
-        base_reason=score_report.get("reason") or old_valuation["reason"],
+        ma20=ma20,
+        base_signal=score_report.get("investment_suggestion", old_valuation["investment_suggestion"]),
     )
+
+    valuation_reason = (
+        f"最新價格判斷：{latest_reason} "
+        f"{score_report.get('reason') or old_valuation['reason']} "
+        f"新聞面：{news_analysis.get('summary', '')}"
+    ).strip()
 
     report = {
         "symbol": symbol,
         "company_name": overview["company_name"],
-        "latest_price": displayed_latest_price if displayed_latest_price is not None else 0,
-        "latest_price_date": displayed_latest_price_date,
-        "latest_price_source": live_quote.get("source", "finmind"),
+        "latest_price": latest_price["close"] if latest_price["close"] is not None else 0,
+        "latest_price_date": latest_price["price_date"] or "N/A",
         "latest_spread": latest_price["spread"] if latest_price["spread"] is not None else 0,
         "enterprise_overview": {
             "industry_category": overview["industry_category"],
@@ -795,9 +774,8 @@ def build_structured_report(symbol: str, force_refresh: bool = False):
             "quality_score": safe_int(score_report.get("quality_score", 0), 0),
             "growth_score": safe_int(score_report.get("growth_score", 0), 0),
             "technical_score": safe_int(score_report.get("technical_score", 0), 0),
-            "investment_suggestion": latest_price_judgment["suggestion"],
-            "latest_signal_reason": latest_price_judgment["signal_reason"],
-            "reason": latest_price_judgment["reason"],
+            "investment_suggestion": latest_signal,
+            "reason": valuation_reason,
         }
     }
 
@@ -810,9 +788,8 @@ def build_structured_report(symbol: str, force_refresh: bool = False):
     valuation.setdefault("score", 0)
     valuation.setdefault("fair_value", 0)
     valuation.setdefault("ma20", 0)
-    valuation.setdefault("investment_suggestion", "適合")
+    valuation.setdefault("investment_suggestion", "持有")
     valuation.setdefault("news_score", 10)
-    valuation.setdefault("latest_signal_reason", "")
 
     report["valuation"] = valuation
 

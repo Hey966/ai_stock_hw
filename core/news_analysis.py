@@ -46,6 +46,10 @@ def _cache_set(key, value):
     }
 
 
+def _cache_delete(key):
+    NEWS_CACHE.pop(key, None)
+
+
 def _safe_text(v, default=""):
     if v is None:
         return default
@@ -262,10 +266,13 @@ def _calc_news_result(symbol: str, company_name: str, industry: str, items):
 
 def analyze_stock_news(symbol: str, company_name: str = "", industry: str = "", force_refresh: bool = False):
     cache_key = f"{symbol}|{company_name}|{industry}"
-    if not force_refresh:
-        cached = _cache_get(cache_key)
-        if cached is not None:
-            return cached
+
+    if force_refresh:
+        _cache_delete(cache_key)
+
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     queries = _build_queries(symbol, company_name, industry)
     all_items = []
