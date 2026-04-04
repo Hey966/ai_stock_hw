@@ -30,10 +30,7 @@ def _now_ts():
     return time.time()
 
 
-def _cache_get(key, force_refresh: bool = False):
-    if force_refresh:
-        return None
-
+def _cache_get(key):
     data = NEWS_CACHE.get(key)
     if not data:
         return None
@@ -214,7 +211,6 @@ def _calc_news_result(symbol: str, company_name: str, industry: str, items):
     else:
         sentiment_score = round(total_text_score / headline_count, 2)
 
-    # 轉成 0~20 分的新聞分數
     news_score = 10
     if sentiment_score >= 1.0:
         news_score = 18
@@ -266,19 +262,18 @@ def _calc_news_result(symbol: str, company_name: str, industry: str, items):
 
 def analyze_stock_news(symbol: str, company_name: str = "", industry: str = "", force_refresh: bool = False):
     cache_key = f"{symbol}|{company_name}|{industry}"
-    cached = _cache_get(cache_key, force_refresh=force_refresh)
-    if cached is not None:
-        return cached
+    if not force_refresh:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
 
     queries = _build_queries(symbol, company_name, industry)
     all_items = []
 
-    # 先走 NewsAPI
     for q in queries:
         items = _fetch_from_newsapi(q, days=7, page_size=8)
         all_items.extend(items)
 
-    # NewsAPI 沒抓到，再走 RSS 備援
     if not all_items:
         for q in queries:
             items = _fetch_from_google_rss(q, max_items=8)
